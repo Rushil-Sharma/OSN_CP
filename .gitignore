@@ -1,0 +1,5 @@
+*.o
+scheduler/scheduler
+worker/worker
+client/client
+test/protocol_test

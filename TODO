@@ -6,11 +6,11 @@ Mark done with [x]. Put owner initials after each task if you like.
 ==========================================================================
 M0 SETUP
 ==========================================================================
-[ ] Repo, Makefile with scheduler/worker/client targets, layout:
+[x] Repo, Makefile with scheduler/worker/client targets, layout:
     common/, scheduler/, worker/, client/  (shared code lives ONCE in common/)
-[ ] Split sections between the 3 members; agree on commit message style
+[x] Split sections between the 3 members; agree on commit message style
     (everyone commits own work, no "fix"/"asdf" commits)
-[ ] Design wire protocol: header (type + length), all message types,
+[x] Design wire protocol: header (type + length), all message types,
     send_all()/recv_all() framing helpers
 [ ] Job + worker structs for the FULL lifecycle now:
     job states QUEUED RUNNING COMPLETED FAILED CANCELLED WAITING LOST FAILED_PERMANENT
