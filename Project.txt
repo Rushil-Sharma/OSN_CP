@@ -81,8 +81,6 @@ Binary transfer: The client and the scheduler run on the same machine (or share 
 
 How we expect you to work
 
-AI agents are banned: Don't use AI agents to write this project. By "agent" we mean a tool that works on your code directly: it reads your project files, edits them, and runs commands by itself. If we find out you used one, you'll be penalised. An LLM in a chat window (in your browser, say) is fine. Ask it to explain something, generate boilerplate, or help you debug.
-
 Keep the code modular: Three giant main.c files is not a design. Split things up by concern: networking, scheduling, running jobs on the worker, logging. Anything all three programs need, like your message definitions, belongs in one shared place. Don't paste it three times.
 
 This is a team project for 3 members, and the work should be split roughly evenly. We look at
