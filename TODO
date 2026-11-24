@@ -1,0 +1,204 @@
+DISTRIBUTED COMPUTE CLUSTER - PROJECT TODO
+Deadline: 2 December 2026
+ 
+Mark done with [x]. Put owner initials after each task if you like.
+ 
+==========================================================================
+M0 SETUP
+==========================================================================
+[ ] Repo, Makefile with scheduler/worker/client targets, layout:
+    common/, scheduler/, worker/, client/  (shared code lives ONCE in common/)
+[ ] Split sections between the 3 members; agree on commit message style
+    (everyone commits own work, no "fix"/"asdf" commits)
+[ ] Design wire protocol: header (type + length), all message types,
+    send_all()/recv_all() framing helpers
+[ ] Job + worker structs for the FULL lifecycle now:
+    job states QUEUED RUNNING COMPLETED FAILED CANCELLED WAITING LOST FAILED_PERMANENT
+    worker states ALIVE SUSPECTED DEAD DRAINING
+    fields: attempts, deps, group, preemptible, cron id, hash, checkpoint,
+    migrated-from worker, preempt hold
+[ ] Pick concurrency model (event loop OR thread-per-connection) and stick to it
+ 
+==========================================================================
+M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
+==========================================================================
+-- 7 Logging (10) --
+[ ] Central log_line(): [HH:MM:SS] 24h + [SCHEDULER] / [WORKER <id>] tags
+[ ] Log every worker/job state change, every scheduling decision (worker + why),
+    every discovery outcome
+ 
+-- 2A Scheduler (5) --
+[ ] ./scheduler <port> <FIFO|PRIORITY> [-discovery-port N] (default 9999), startup lines
+ 
+-- 2B Worker (10) --
+[ ] CLI parsing; clamp cores (sysconf _SC_NPROCESSORS_ONLN) and RAM
+    (_SC_PHYS_PAGES * _SC_PAGESIZE, or HW_MEMSIZE on macOS) with warning; don't clamp gpu
+[ ] Registration: scheduler assigns unique worker ID in response; log without ID before
+[ ] On lost connection: kill running jobs, rediscover, re-register as NEW worker (new ID)
+ 
+-- 2C Discovery (10) --
+[ ] Scheduler UDP responder, SO_REUSEADDR/SO_REUSEPORT, replies with TCP addr+port
+[ ] Shared discovery client: broadcast, 2s timeout, 3 retries; fallback to CLI address
+    (log "No discovery reply, using fallback ..."); error+exit if no fallback
+[ ] Re-run discovery whenever the scheduler connection drops
+[ ] Test on personal hotspot, Linux + macOS (NOT wifi-iiith; unique -discovery-port)
+ 
+-- 3 Client: Login (10) --
+[ ] Client CLI with discovery + fallback
+[ ] Username prompt, validate 1-31 chars of [A-Za-z0-9_.-], re-ask if bad; -user skips prompt
+[ ] Username is first message; auto-resend on reconnect; allow duplicate usernames
+ 
+-- 3 Client: Commands (15) --
+[ ] select()/poll() on stdin + socket (or reader thread) so [Event]s show at prompt
+[ ] nodes, submit, status, logs, cancel
+[ ] submit flags: -cores -ram -time -prio (required), -gpu (optional, default 0)
+[ ] Scheduler: job owned by user, user named in log lines,
+    [Event] only to owner on every state change + worker SUSPECTED/DEAD warnings
+ 
+-- 4A Concurrency (30) --
+[ ] Implement chosen model; status/nodes never wait behind a scheduling decision
+[ ] Bounded thread-safe queue, capacity 1024; QUEUE_FULL without blocking;
+    requeued jobs (after worker death etc.) never dropped
+[ ] Schedule on: submit, job finish, worker available, heartbeat, AND >= once per second
+ 
+-- 4B Algorithms (25) --
+[ ] Pass: order -> match (ALIVE + enough free cores/RAM/GPU) -> choose -> no match
+    (FIFO: stop pass; PRIORITY: next job)
+[ ] PRIORITY aging: +1 per 10s waiting, floor 1; ties -> older first
+ 
+-- Binary transfer --
+[ ] Scheduler reads executable at submitted path, sends to worker;
+    bare PATH command (e.g. ls) runs by name, no transfer
+ 
+-- 5A Isolation (30) --
+[ ] fork() + execvp(), NEVER system()
+[ ] Child, in this order:
+    1. mkdir /tmp/osn_job_<id>, chdir, copy binary (skip for PATH cmds), chown to nobody
+    2. getpwnam("nobody"), setgid() THEN setuid(), check returns, don't run on failure
+    3. setrlimit RLIMIT_CPU = time
+    4. setrlimit RLIMIT_AS = ram MB -> bytes
+    5. setrlimit RLIMIT_NPROC ~64 (per USER, shared by all jobs as nobody!)
+[ ] Not root -> clear warning, skip chown + privilege drop, keep going (TA tests with sudo)
+[ ] Wall-clock deadline in worker -> SIGKILL; report "Wall-clock timeout exceeded (Ns limit)"
+    (also for SIGXCPU)
+[ ] macOS: poll proc_pidinfo() resident memory, SIGKILL over ram (macOS ignores RLIMIT_AS)
+[ ] Delete /tmp/osn_job_<id> after final report sent
+ 
+-- 5B Output capture (10) --
+[ ] dup2 stdout+stderr -> /tmp/osn_job_<id>/output.log before execvp
+[ ] Every ~500ms send new bytes to scheduler; at end send remainder, then completed/failed
+ 
+-- M1 test --
+[ ] End-to-end: submit, run, output, FIFO vs PRIORITY, aging, QUEUE_FULL, limits, sudo
+ 
+==========================================================================
+M2 RESILIENCE & TELEMETRY - Sections 4C-D, 5C-E, 6, 9
+==========================================================================
+-- 4C Heartbeats & fault tolerance (40) --
+[ ] Heartbeat every 2s: CPU load, running job count, per-job telemetry
+[ ] ALIVE -> SUSPECTED (1 miss) -> DEAD (3 consecutive misses, ~6s);
+    SUSPECTED -> ALIVE on heartbeat; only ALIVE gets new jobs
+[ ] WARNING events (SUSPECTED / DEAD) to users with jobs on that worker
+[ ] Rescue: RUNNING -> LOST -> QUEUED, count attempts;
+    MAX_ATTEMPTS = 3 (#define, not a flag) -> FAILED_PERMANENT + event
+ 
+-- 4D Load-aware (10) --
+[ ] CPU load = getloadavg() / cores * 100, cap 100
+[ ] Pick lower CPU load, tie -> fewer jobs; log "Job X -> Worker A (chosen over B: CPU 8% vs 61%)"
+ 
+-- 5C Cancellation (10) --
+[ ] QUEUED -> remove from queue, CANCELLED
+[ ] RUNNING -> SIGKILL + waitpid (no zombies), free cores/RAM, CANCELLED
+[ ] WAITING -> CANCELLED
+[ ] Event: "Job N RUNNING -> CANCELLED (requested by <user>)"
+ 
+-- 5D Telemetry (10) --
+[ ] Linux /proc/<pid>/stat + statm; macOS proc_pidinfo() (#include <libproc.h>)
+    RAM, page faults, CPU time; peak RAM for finished jobs
+    (getrusage(RUSAGE_CHILDREN) does NOT work for running jobs)
+[ ] status shows live figures; test with a memory-leaking program
+ 
+-- 5E Crash diagnosis (10) --
+[ ] WIFEXITED / WIFSIGNALED / WTERMSIG; plain-word names (SIGSEGV, SIGFPE, ...)
+[ ] Non-zero exit codes incl. 127 (command not found)
+[ ] Worker-known reasons (timeout, cancel, preempt, migrate) instead of signal numbers
+ 
+-- 6 Streaming logs (20) --
+[ ] Scheduler keeps >= last 64 KB output per job; plain `logs` works after job printed
+[ ] logs -f: subscribe, stream live (no buffering till end), "-- Job N finished --" footer
+[ ] Ctrl+C in follow mode returns to prompt, does NOT exit client
+ 
+-- 9 Draining (10) --
+[ ] `drain` on worker stdin OR SIGINT -> DRAINING (no client command for this)
+[ ] Scheduler excludes DRAINING; worker keeps heartbeating, finishes jobs, sends output, exits
+[ ] Drained worker leaving is NOT a failure, nothing rescued; log the transition
+ 
+-- M2 test --
+[ ] Kill worker mid-job (retry elsewhere), retry limit, cancel in each state,
+    drain, telemetry, crash reasons
+ 
+==========================================================================
+M3 ADVANCED SCHEDULING  - Sections 8, 10, 11, 12, 13
+==========================================================================
+-- 8 Dependencies & groups (20) --
+[ ] -depends-on 1,2,g3 and -group N; resolve gN at submit time;
+    reject unknown job/group IDs
+[ ] Start WAITING; -> QUEUED when all deps COMPLETED; WAITING excluded from ordering
+[ ] Dep FAILED / FAILED_PERMANENT / CANCELLED -> CANCELLED, cascading down the chain; events
+ 
+-- 10 Preemption (20) --
+[ ] -preemptible flag
+[ ] P1 job with no match: find worker where killing preemptible jobs frees enough;
+    kill minimal set (lowest prio first, then newest) with SIGKILL
+[ ] Preempted -> QUEUED, no attempt cost
+[ ] Hold preempted jobs until the P1 job starts; release hold if P1 cancelled/fails
+ 
+-- 11 Fair-share (15) --
+[ ] Track cores held per user by RUNNING jobs
+[ ] User > 50% of non-DEAD cores AND another non-over-quota user has QUEUED job -> skip
+    (even if higher priority; exactly 50% is NOT over)
+[ ] Log skip once per pair per pass
+ 
+-- 12 Cron (15) --
+[ ] -every N creates template (own ID numbering from 1); reject with -depends-on
+[ ] ~1s timer injects copies: first immediately, then every N s (even if previous running)
+[ ] Event "Cron X injected Job Y (run #n)"
+[ ] `crons` (id, interval, runs, user, command); `cancel-cron` (errors for unknown/cancelled)
+ 
+-- 13 Caching (20 + 5 + 10) --
+[ ] Hash binary (SHA-256/SHA-1); worker cache/ (OSN_CACHE_DIR) named by file + hash
+[ ] Scheduler tracks hashes per worker; full send first time, "already cached" after
+[ ] Worker reconnect: scan cache, report hashes
+[ ] Missing cached file -> worker reports, scheduler drops hash + re-sends, no attempt cost
+[ ] Unreadable/PATH command -> run by path, no caching
+[ ] (5) Choice order: idle > cached > lower CPU > fewer jobs; log why winner won
+[ ] (10) LRU eviction, OSN_CACHE_SIZE_MB (default 512); "used" = job started from it;
+    never evict just-stored or in-use file; report remaining hashes after eviction
+ 
+-- M3 test --
+[ ] Dep chain + cascade, preemption, quota example (4-core worker), cron,
+    cache hit/miss, 1-byte change, deleted cache file,
+    A,B,A,C with OSN_CACHE_SIZE_MB=2 (B evicted, not A)
+ 
+==========================================================================
+M4 CHECKPOINTS & MIGRATION - Section 14
+==========================================================================
+[ ] OSN_CHECKPOINT_DIR = /tmp/osn_job_<id>/checkpoint/, chown to nobody
+[ ] Worker checks `state` mtime every ~500ms, sends new checkpoint; scheduler keeps latest per job
+[ ] On ANY restart (migrate, preempt, dead worker): send checkpoint, THEN binary/cached msg;
+    worker places it before starting job
+[ ] migrate <id>: SIGTERM, SIGKILL after 2s, QUEUED with no attempt cost,
+    exclude source worker if another qualifies; errors for missing / not RUNNING
+[ ] status shows checkpoint number, size, age
+[ ] Test job that checkpoints (write tmp, rename to state); test migrate + worker kill resume
+ 
+==========================================================================
+FINAL
+==========================================================================
+[ ] Scheduling pass matches "Order of Scheduling Decisions" exactly:
+    QUEUED only -> aging -> order -> per job: preempt hold -> quota -> match
+    (ALIVE, not DRAINING, exclude migrated-from) -> choose (idle > cached > CPU > jobs)
+    -> no match (P1 preempt; FIFO stop / PRIORITY next) -> send checkpoint -> send binary
+[ ] Multi-machine run under sudo; no zombies, no leftover /tmp/osn_job_* dirs
+[ ] Review modularity + commit history (balanced, good messages); submit
+ 
