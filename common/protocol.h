@@ -5,10 +5,12 @@
 
 #include "net.h"
 
+// Define protocol version, fixed header size, and maximum payload size.
 #define OSN_PROTOCOL_VERSION 1
 #define OSN_HEADER_SIZE 8
 #define OSN_MAX_PAYLOAD (UINT32_C(64) * 1024u * 1024u)
 
+// Define every message type used now and by later milestones.
 typedef enum {
 	MSG_NONE = 0,
 	MSG_CLIENT_HELLO,
@@ -52,19 +54,29 @@ typedef enum {
 	MSG_COUNT
 } msg_type_t;
 
+// Define the in-memory view of the fixed eight-byte wire header.
 typedef struct {
 	uint16_t type;
 	uint16_t version;
 	uint32_t length;
 } msg_header_t;
 
+// Encode a header into network byte order.
 void msg_header_encode(uint8_t out[OSN_HEADER_SIZE], msg_type_t type, uint32_t length);
+
+// Decode and validate a header from network byte order.
 int msg_header_decode(const uint8_t in[OSN_HEADER_SIZE], msg_type_t *type, uint16_t *version, uint32_t *length);
 
+// Send one framed message with a header and optional payload.
 int send_msg(int fd, msg_type_t type, const void *payload, uint32_t length);
+
+// Receive one framed message and allocate its payload.
 recv_status_t recv_msg(int fd, msg_type_t *type, uint8_t **payload, uint32_t *length);
+
+// Release a payload buffer returned by recv_msg.
 void msg_payload_free(uint8_t *payload);
 
+// Return the printable name of a message type.
 const char *msg_type_name(msg_type_t type);
 
 #endif

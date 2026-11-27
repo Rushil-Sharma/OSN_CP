@@ -7,6 +7,7 @@
 
 #include "net.h"
 
+// Encode a header into network byte order.
 void msg_header_encode(uint8_t out[OSN_HEADER_SIZE], msg_type_t type, uint32_t length)
 {
 	uint16_t raw_type = htons((uint16_t)type);
@@ -18,6 +19,7 @@ void msg_header_encode(uint8_t out[OSN_HEADER_SIZE], msg_type_t type, uint32_t l
 	memcpy(out + 4, &raw_length, sizeof(raw_length));
 }
 
+// Decode and validate a header from network byte order.
 int msg_header_decode(const uint8_t in[OSN_HEADER_SIZE], msg_type_t *type, uint16_t *version, uint32_t *length)
 {
 	uint16_t raw_type;
@@ -28,17 +30,16 @@ int msg_header_decode(const uint8_t in[OSN_HEADER_SIZE], msg_type_t *type, uint1
 		errno = EINVAL;
 		return -1;
 	}
-
 	memcpy(&raw_type, in, sizeof(raw_type));
 	memcpy(&raw_version, in + 2, sizeof(raw_version));
 	memcpy(&raw_length, in + 4, sizeof(raw_length));
-
 	*type = (msg_type_t)ntohs(raw_type);
 	*version = ntohs(raw_version);
 	*length = ntohl(raw_length);
 	return 0;
 }
 
+// Send one framed message with a header and optional payload.
 int send_msg(int fd, msg_type_t type, const void *payload, uint32_t length)
 {
 	uint8_t header[OSN_HEADER_SIZE];
@@ -48,7 +49,6 @@ int send_msg(int fd, msg_type_t type, const void *payload, uint32_t length)
 		errno = EINVAL;
 		return -1;
 	}
-
 	msg_header_encode(header, type, length);
 	if (send_all(fd, header, sizeof(header)) != 0) {
 		return -1;
@@ -59,6 +59,7 @@ int send_msg(int fd, msg_type_t type, const void *payload, uint32_t length)
 	return 0;
 }
 
+// Receive one framed message and allocate its payload.
 recv_status_t recv_msg(int fd, msg_type_t *type, uint8_t **payload, uint32_t *length)
 {
 	uint8_t header[OSN_HEADER_SIZE];
@@ -72,7 +73,6 @@ recv_status_t recv_msg(int fd, msg_type_t *type, uint8_t **payload, uint32_t *le
 		errno = EINVAL;
 		return RECV_ERR;
 	}
-
 	status = recv_all(fd, header, sizeof(header));
 	if (status != RECV_OK) {
 		return status;
@@ -85,7 +85,6 @@ recv_status_t recv_msg(int fd, msg_type_t *type, uint8_t **payload, uint32_t *le
 		errno = EPROTO;
 		return RECV_ERR;
 	}
-
 	buffer = malloc(parsed_length > 0 ? parsed_length : 1);
 	if (buffer == NULL) {
 		return RECV_ERR;
@@ -98,18 +97,19 @@ recv_status_t recv_msg(int fd, msg_type_t *type, uint8_t **payload, uint32_t *le
 		}
 		return RECV_ERR;
 	}
-
 	*type = parsed_type;
 	*payload = buffer;
 	*length = parsed_length;
 	return RECV_OK;
 }
 
+// Release a payload buffer returned by recv_msg.
 void msg_payload_free(uint8_t *payload)
 {
 	free(payload);
 }
 
+// Return the printable name of a message type.
 const char *msg_type_name(msg_type_t type)
 {
 	switch (type) {
