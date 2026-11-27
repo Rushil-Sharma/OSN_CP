@@ -25,9 +25,9 @@ CLIENT_OBJS := client/main.o
 TEST_OBJS := test/protocol_test.o
 
 ALL_BINS := $(SCHEDULER_BIN) $(WORKER_BIN) $(CLIENT_BIN) $(TEST_BIN)
-ALL_OBJS := $(COMMON_OBJS) $(SCHEDULER_OBJS) $(WORKER_OBJS) $(CLIENT_OBJS) $(TEST_OBJS)
+CLEAN_OBJS := $(wildcard common/*.o scheduler/*.o worker/*.o client/*.o test/*.o)
 
-.PHONY: all scheduler worker client test clean
+.PHONY: all scheduler worker client test clean clear
 
 all: $(ALL_BINS)
 
@@ -53,4 +53,6 @@ $(TEST_BIN): $(TEST_OBJS) $(COMMON_OBJS)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(ALL_OBJS) $(ALL_BINS)
+	rm -f $(CLEAN_OBJS) $(ALL_BINS)
+
+clear: clean

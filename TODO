@@ -12,12 +12,12 @@ M0 SETUP
     (everyone commits own work, no "fix"/"asdf" commits)
 [x] Design wire protocol: header (type + length), all message types,
     send_all()/recv_all() framing helpers
-[ ] Job + worker structs for the FULL lifecycle now:
+[x] Job + worker structs for the FULL lifecycle now:
     job states QUEUED RUNNING COMPLETED FAILED CANCELLED WAITING LOST FAILED_PERMANENT
     worker states ALIVE SUSPECTED DEAD DRAINING
     fields: attempts, deps, group, preemptible, cron id, hash, checkpoint,
     migrated-from worker, preempt hold
-[ ] Pick concurrency model (event loop OR thread-per-connection) and stick to it
+[x] Pick concurrency model (event loop OR thread-per-connection) and stick to it
  
 ==========================================================================
 M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
