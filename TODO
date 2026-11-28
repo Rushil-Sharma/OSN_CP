@@ -28,7 +28,7 @@ M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
     every discovery outcome
  
 -- 2A Scheduler (5) --
-[ ] (M) ./scheduler <port> <FIFO|PRIORITY> [-discovery-port N] (default 9999), startup lines
+[x] (M) ./scheduler <port> <FIFO|PRIORITY> [-discovery-port N] (default 9999), startup lines
  
 -- 2B Worker (10) --
 [ ] (R) CLI parsing; clamp cores (sysconf _SC_NPROCESSORS_ONLN) and RAM
