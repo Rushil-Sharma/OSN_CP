@@ -9,6 +9,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "../common/log.h"
 #include "../common/messages.h"
 #include "../common/net.h"
 #include "../common/protocol.h"
@@ -113,6 +114,7 @@ int main(int argc, char **argv)
 		return EXIT_FAILURE;
 	}
 	m1_worker_resources_stub(&worker);
+	log_worker(-1, "registering with %s:%d", argv[1], port);
 	if (msg_encode_worker_register(payload, sizeof(payload), &payload_len, &worker) != 0 ||
 	    send_msg(fd, MSG_WORKER_REGISTER, payload, (uint32_t)payload_len) != 0) {
 		close(fd);
@@ -125,6 +127,7 @@ int main(int argc, char **argv)
 		close(fd);
 		return EXIT_FAILURE;
 	}
+	log_worker(worker_id, "registration acknowledged");
 	printf("WORKER_REGISTER_ACK worker %d\n", worker_id);
 	msg_payload_free(received);
 	close(fd);

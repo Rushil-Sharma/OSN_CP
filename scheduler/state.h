@@ -52,6 +52,12 @@ void scheduler_state_destroy(scheduler_state_t *state);
 // Register a worker snapshot and return its assigned id.
 int scheduler_register_worker(scheduler_state_t *state, const worker_t *snapshot, int fd, int32_t *out_id);
 
+// Change a worker state and log the transition while the caller holds the lock.
+int scheduler_set_worker_state_locked(scheduler_state_t *state, int32_t worker_id, worker_state_t new_state);
+
+// Change a job state and log the transition while the caller holds the lock.
+int scheduler_set_job_state_locked(scheduler_state_t *state, uint32_t job_id, job_state_t new_state);
+
 // Allocate the next client session id under the state lock.
 uint32_t scheduler_next_session_id(scheduler_state_t *state);
 

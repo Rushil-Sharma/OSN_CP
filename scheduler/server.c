@@ -13,6 +13,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "../common/log.h"
 #include "../common/messages.h"
 #include "../common/net.h"
 #include "../common/protocol.h"
@@ -33,28 +34,37 @@ typedef struct {
 	scheduler_state_t *state;
 } accept_ctx_t;
 
-// Mark milestone-one scheduling algorithms as an intentionally empty stub.
+// Log undecided scheduling passes while the algorithm remains a stub.
 static void m1_scheduling_pass_stub(scheduler_state_t *state)
 {
-	(void)state;
+	uint32_t queued;
+
+	if (state == NULL || pthread_mutex_lock(&state->lock) != 0) {
+		return;
+	}
+	queued = state->queue_count;
+	(void)pthread_mutex_unlock(&state->lock);
+	if (queued > 0) {
+		log_scheduling_decision(0, -1, "no worker selected by stub");
+	}
 }
 
-// Mark milestone-one discovery support as an intentionally empty stub.
+// Record the configured discovery port through the outcome logger.
 static void m1_discovery_responder_stub(int discovery_port)
 {
-	(void)discovery_port;
+	log_discovery_outcome(1, "stub", (uint16_t)discovery_port);
 }
 
-// Mark milestone-one client commands as intentionally empty stubs.
+// Log client commands that are not implemented yet.
 static void m1_client_command_stub(msg_type_t type)
 {
-	(void)type;
+	log_sched("client command %s not implemented", msg_type_name(type));
 }
 
-// Mark later worker lifecycle messages as intentionally empty stubs.
+// Log worker messages that are not implemented yet.
 static void m2_worker_message_stub(msg_type_t type)
 {
-	(void)type;
+	log_worker(-1, "message %s not implemented", msg_type_name(type));
 }
 
 // Mark the scheduler stopped and wake the scheduling thread.
@@ -96,6 +106,7 @@ static void client_session(int fd, scheduler_state_t *state, const uint8_t *payl
 	    send_msg(fd, MSG_HELLO_ACK, ack, (uint32_t)ack_len) != 0) {
 		return;
 	}
+	log_sched("client session %u assigned to user %s", session_id, user);
 	for (;;) {
 		msg_type_t type;
 		uint8_t *body = NULL;
@@ -126,8 +137,11 @@ static void worker_session(int fd, scheduler_state_t *state, const uint8_t *payl
 		send_error(fd, 3, "worker capacity reached");
 		return;
 	}
+	log_sched("worker %d registered cores=%u ram_mb=%llu gpu=%u", worker_id,
+	          snapshot.total_cores, (unsigned long long)snapshot.total_ram_mb, snapshot.total_gpu);
 	if (msg_encode_worker_register_ack(ack, sizeof(ack), &ack_len, worker_id) != 0 ||
 	    send_msg(fd, MSG_WORKER_REGISTER_ACK, ack, (uint32_t)ack_len) != 0) {
+		log_sched("worker %d registration ack failed", worker_id);
 		scheduler_mark_worker_fd_closed(state, fd);
 		return;
 	}
@@ -148,6 +162,7 @@ static void worker_session(int fd, scheduler_state_t *state, const uint8_t *payl
 		}
 		msg_payload_free(body);
 	}
+	log_sched("worker %d session closed", worker_id);
 	scheduler_mark_worker_fd_closed(state, fd);
 }
 
@@ -305,6 +320,8 @@ int scheduler_run(int port, policy_t policy, int discovery_port)
 		scheduler_state_destroy(state);
 		return -1;
 	}
+	log_sched("startup port=%d policy=%s discovery_port=%d", port,
+	          policy == POLICY_FIFO ? "FIFO" : "PRIORITY", discovery_port);
 	if (pthread_create(&scheduling_thread, NULL, scheduling_loop, state) != 0) {
 		close(listen_fd);
 		scheduler_state_destroy(state);

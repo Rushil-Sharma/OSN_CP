@@ -11,7 +11,7 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - Scheduler policies: `FIFO` and `PRIORITY`; default discovery port `9999`.
 - Build flags: `-std=c11 -Wall -Wextra -Werror -pthread`; `_POSIX_C_SOURCE=200809L` on non-Darwin, `_DARWIN_C_SOURCE` on macOS.
 - Commit convention: Conventional Commits directly to `main`, `type(scope): imperative lower-case subject`.
-- TODO marking: plain `[x]`, no initials, no section split.
+- TODO marking: plain `[x]` after completion; M1+ tasks carry `(M)`, `(H)`, or `(R)` owner tags; no section split.
 - C comments: one-line `//` explanations immediately before code blocks.
 
 ## Completed changes
@@ -27,6 +27,8 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - `worker/main.c` parses address and port, sends a registration skeleton, and prints the assigned worker id from `MSG_WORKER_REGISTER_ACK`.
 - `client/main.c` parses address, port, and `-user`, sends a hello skeleton, and prints the session id from `MSG_HELLO_ACK`.
 - Extended `test/protocol_test.c` with truncated payload, invalid type, and payload-helper tests.
+- Added `common/log.{h,c}` with thread-safe timestamped `[SCHEDULER]` / `[WORKER <id>]` logging and event helpers.
+- Worker/job state transitions, scheduling decisions, and discovery outcomes route through common logging helpers.
 - Added one-line `//` comments across all C sources and headers.
 - Added this `CONTEXT.md` summary.
 
