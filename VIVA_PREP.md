@@ -16,13 +16,13 @@ Use this file as the shared index only. Each member reads only their own files p
 
 | Milestone | M | H | R |
 |---|---|---|---|
-| M1 | 26, 27, 31, 40, 44, 59, 60, 62, 65, 67, 70, 92 | 36, 55 | 34, 37, 41, 43, 47, 48, 49, 52, 53, 54, 74, 75, 81, 82, 84, 85, 88, 89 |
+| M1 | 26, 27, 31, 40, 44, 59, 60, 62, 65, 67, 70, 92 | 55 | 34, 36, 37, 41, 43, 47, 48, 49, 52, 53, 54, 74, 75, 81, 82, 84, 85, 88, 89 |
 | M2 | 101, 107, 137 | 98, 99, 102, 110, 112, 113, 119, 127, 128, 133, 134 | 106, 111, 116, 122, 123, 124, 129, 132 |
 | M3 | 151, 154, 158, 160, 174, 179 | 144, 146, 147, 153, 157, 163, 164, 165, 166, 170, 175 | 150, 169, 171, 172, 173 |
 | M4 | 188, 190, 193 | 192 | 186, 187 |
 | Final | 198, 202, 203 | — | — |
 
-Totals: M 27 tasks, H 25 tasks, R 33 tasks.
+Totals: M 27 tasks, H 24 tasks, R 34 tasks.
 
 ## Prep prompts
 
@@ -45,7 +45,7 @@ Totals: M 27 tasks, H 25 tasks, R 33 tasks.
 
 - Explain `common/net.{h,c}` and `common/protocol.{h,c}`: exact-length I/O, 8-byte header, network byte order, version/type/length checks, EOF vs error.
 - Explain `test/protocol_test.c`: socketpair-based framing tests and malformed frame cases.
-- Explain `worker/main.c`, `client/main.c`, and `CONTEXT.md`; the entrypoints are handshake skeletons, not the full M1 behavior.
+- Explain `worker/main.c`, `client/main.c`, and `CONTEXT.md`; the entrypoints cover handshakes, worker resource flags, and reconnect retry, not the full M1 behavior.
 - Own worker/client-facing work: CLI parsing, discovery client, username prompt, command loop, isolation, output capture, heartbeats, telemetry collection, crash reasons, draining, cache files, and follow-mode UX.
 
 ## Shared contract facts

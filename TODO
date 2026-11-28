@@ -31,10 +31,10 @@ M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
 [x] (M) ./scheduler <port> <FIFO|PRIORITY> [-discovery-port N] (default 9999), startup lines
  
 -- 2B Worker (10) --
-[ ] (R) CLI parsing; clamp cores (sysconf _SC_NPROCESSORS_ONLN) and RAM
+[x] (R) CLI parsing; clamp cores (sysconf _SC_NPROCESSORS_ONLN) and RAM
     (_SC_PHYS_PAGES * _SC_PAGESIZE, or HW_MEMSIZE on macOS) with warning; don't clamp gpu
-[ ] (H) Registration: scheduler assigns unique worker ID in response; log without ID before
-[ ] (R) On lost connection: kill running jobs, rediscover, re-register as NEW worker (new ID)
+[x] (R) Registration: scheduler assigns unique worker ID in response; log without ID before
+[x] (R) On lost connection: kill running jobs, rediscover, re-register as NEW worker (new ID)
  
 -- 2C Discovery (10) --
 [ ] (M) Scheduler UDP responder, SO_REUSEADDR/SO_REUSEPORT, replies with TCP addr+port

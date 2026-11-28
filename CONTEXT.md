@@ -24,7 +24,7 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - Added `scheduler/state.{h,c}` with one mutex, one condition variable, job/worker state, queue, log, and subscription placeholders.
 - Added `scheduler/server.{h,c}` with a TCP listener, detached session threads, first-frame dispatch, and a dedicated scheduling thread with a 1-second tick.
 - `scheduler/main.c` parses `<port> <FIFO|PRIORITY> [-discovery-port N]` with default discovery port `9999`.
-- `worker/main.c` parses address and port, sends a registration skeleton, and prints the assigned worker id from `MSG_WORKER_REGISTER_ACK`.
+- `worker/main.c` parses `<address> <port> [-cores N] [-ram MB] [-gpu N]`, clamps cores and RAM to host limits with warnings, sends registration, and retries through fallback rediscovery after lost connections.
 - `client/main.c` parses address, port, and `-user`, sends a hello skeleton, and prints the session id from `MSG_HELLO_ACK`.
 - Extended `test/protocol_test.c` with truncated payload, invalid type, and payload-helper tests.
 - Added `common/log.{h,c}` with thread-safe timestamped `[SCHEDULER]` / `[WORKER <id>]` logging and event helpers.
@@ -37,11 +37,12 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - `.gitignore` ignores `*.o` and all four binaries.
 - `common/net.{h,c}` provides `send_all()`, `recv_all()`, `RECV_OK`, `RECV_EOF`, and `RECV_ERR`.
 - `common/protocol.{h,c}` provides all `MSG_*` types, header encode/decode, `send_msg()`, `recv_msg()`, version/type/bounds checks, and `msg_type_name()`.
-- M1+ behavior is isolated in named stubs such as `m1_scheduling_pass_stub`, `m1_worker_resources_stub`, `m1_client_command_stub`, and `m2_worker_message_stub`.
-- `TODO` has 9-20 marked `[x]`; all M1+ items remain `[ ]`.
+- M1+ behavior is isolated in named stubs such as `m1_scheduling_pass_stub`, `m1_client_command_stub`, `m2_worker_message_stub`, and `kill_running_jobs_stub`.
+- `TODO` has 9-20, 26, 27, 31, 34, 36, and 37 marked `[x]`; remaining M1+ items are still `[ ]`.
 
 ## Verification performed
 
 - `make clean && make all && make test` passed.
 - Smoke check against `./scheduler/scheduler 9000 FIFO` printed `HELLO_ACK session 1` and `WORKER_REGISTER_ACK worker 1`.
+- Worker smoke check with `-cores 999 -ram 999999999 -gpu 2` logged clamped resource warnings and printed `WORKER_REGISTER_ACK worker 1`.
 - Build outputs stay ignored by `.gitignore`.
