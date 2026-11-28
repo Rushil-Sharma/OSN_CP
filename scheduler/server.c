@@ -18,6 +18,7 @@
 #include "../common/net.h"
 #include "../common/protocol.h"
 #include "../common/types.h"
+#include "commands.h"
 #include "discovery.h"
 
 // Define the TCP listen backlog for the scheduler socket.
@@ -50,12 +51,6 @@ static void m1_scheduling_pass_stub(scheduler_state_t *state)
 	}
 }
 
-// Log client commands that are not implemented yet.
-static void m1_client_command_stub(msg_type_t type)
-{
-	log_sched("client command %s not implemented", msg_type_name(type));
-}
-
 // Log worker messages that are not implemented yet.
 static void m2_worker_message_stub(msg_type_t type)
 {
@@ -84,38 +79,6 @@ static void send_error(int fd, uint16_t code, const char *text)
 	}
 }
 
-// Handle a client session after its first hello frame.
-static void client_session(int fd, scheduler_state_t *state, const uint8_t *payload, uint32_t length)
-{
-	char user[MAX_USERNAME];
-	uint8_t ack[16];
-	size_t ack_len = 0;
-	uint32_t session_id;
-
-	if (msg_decode_client_hello(payload, length, user) != 0) {
-		send_error(fd, 1, "bad hello payload");
-		return;
-	}
-	session_id = scheduler_next_session_id(state);
-	if (msg_encode_hello_ack(ack, sizeof(ack), &ack_len, session_id) != 0 ||
-	    send_msg(fd, MSG_HELLO_ACK, ack, (uint32_t)ack_len) != 0) {
-		return;
-	}
-	log_sched("client session %u assigned to user %s", session_id, user);
-	for (;;) {
-		msg_type_t type;
-		uint8_t *body = NULL;
-		uint32_t body_len = 0;
-		recv_status_t status = recv_msg(fd, &type, &body, &body_len);
-
-		if (status != RECV_OK) {
-			break;
-		}
-		m1_client_command_stub(type);
-		msg_payload_free(body);
-	}
-}
-
 // Handle a worker session after its first register frame.
 static void worker_session(int fd, scheduler_state_t *state, const uint8_t *payload, uint32_t length)
 {
@@ -125,11 +88,11 @@ static void worker_session(int fd, scheduler_state_t *state, const uint8_t *payl
 	size_t ack_len = 0;
 
 	if (msg_decode_worker_register(payload, length, &snapshot) != 0) {
-		send_error(fd, 2, "bad register payload");
+		send_error(fd, MSG_ERR_BAD_REGISTER, "bad register payload");
 		return;
 	}
 	if (scheduler_register_worker(state, &snapshot, fd, &worker_id) != 0) {
-		send_error(fd, 3, "worker capacity reached");
+		send_error(fd, MSG_ERR_WORKER_CAPACITY, "worker capacity reached");
 		return;
 	}
 	log_sched("worker %d registered cores=%u ram_mb=%llu gpu=%u", worker_id,
@@ -173,11 +136,11 @@ static void *session_thread(void *arg)
 	status = recv_msg(ctx->fd, &type, &payload, &length);
 	if (status == RECV_OK) {
 		if (type == MSG_CLIENT_HELLO) {
-			client_session(ctx->fd, ctx->state, payload, length);
+			client_session_run(ctx->fd, ctx->state, payload, length);
 		} else if (type == MSG_WORKER_REGISTER) {
 			worker_session(ctx->fd, ctx->state, payload, length);
 		} else {
-			send_error(ctx->fd, 4, "expected hello or register");
+			send_error(ctx->fd, MSG_ERR_UNEXPECTED_FIRST, "expected hello or register");
 		}
 	}
 	msg_payload_free(payload);

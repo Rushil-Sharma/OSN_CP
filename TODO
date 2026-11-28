@@ -45,14 +45,14 @@ M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
  
 -- 3 Client: Login (10) --
 16. [x] (R) Client CLI with discovery + fallback
-17. [ ] (R) Username prompt, validate 1-31 chars of [A-Za-z0-9_.-], re-ask if bad; -user skips prompt
-18. [ ] (R) Username is first message; auto-resend on reconnect; allow duplicate usernames
+17. [x] (R) Username prompt, validate 1-31 chars of [A-Za-z0-9_.-], re-ask if bad; -user skips prompt
+18. [x] (R) Username is first message; auto-resend on reconnect; allow duplicate usernames
  
 -- 3 Client: Commands (15) --
-19. [ ] (R) select()/poll() on stdin + socket (or reader thread) so [Event]s show at prompt
-20. [ ] (R) nodes, submit, status, logs, cancel
-21. [ ] (R) submit flags: -cores -ram -time -prio (required), -gpu (optional, default 0)
-22. [ ] (H) Scheduler: job owned by user, user named in log lines,
+19. [x] (R) select()/poll() on stdin + socket (or reader thread) so [Event]s show at prompt
+20. [x] (R) nodes, submit, status, logs, cancel
+21. [x] (R) submit flags: -cores -ram -time -prio (required), -gpu (optional, default 0)
+22. [x] (H) Scheduler: job owned by user, user named in log lines,
     [Event] only to owner on every state change + worker SUSPECTED/DEAD warnings
  
 -- 4A Concurrency (30) --

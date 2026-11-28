@@ -219,9 +219,112 @@ static void test_message_helpers(void)
 	assert(strcmp(text, "bad frame") == 0);
 }
 
+// Verify the username rule: 1-31 chars of letters, digits, '_', '-', '.'.
+static void test_username_valid(void)
+{
+	assert(msg_username_valid("lordz"));
+	assert(msg_username_valid("a.b-c_D9"));
+	assert(msg_username_valid("x"));
+	assert(msg_username_valid("abcdefghijklmnopqrstuvwxyz01234"));
+	assert(!msg_username_valid("abcdefghijklmnopqrstuvwxyz012345"));
+	assert(!msg_username_valid(""));
+	assert(!msg_username_valid("has space"));
+	assert(!msg_username_valid("semi;colon"));
+	assert(!msg_username_valid(NULL));
+}
+
+// Verify the client command payloads round-trip and reject trailing bytes.
+static void test_command_messages(void)
+{
+	static msg_submit_t submit;
+	static msg_submit_t decoded_submit;
+	static uint8_t big[JOB_OUTPUT_CAP + MSG_LOGS_CHUNK_HEADER];
+	uint8_t buffer[512];
+	msg_status_t status;
+	msg_status_t decoded_status;
+	msg_node_t nodes[2];
+	msg_node_t decoded_nodes[2];
+	const uint8_t *data = NULL;
+	uint32_t data_len = 0;
+	uint32_t job_id = 0;
+	uint32_t count = 0;
+	uint8_t flag = 0;
+	char text[MSG_TEXT_CAP + 1u];
+	size_t length = 0;
+
+	// Check job id payloads and that an extra byte is rejected.
+	assert(msg_encode_job_id(buffer, sizeof(buffer), &length, 77) == 0);
+	assert(msg_decode_job_id(buffer, (uint32_t)length, &job_id) == 0 && job_id == 77);
+	assert(msg_decode_job_id(buffer, (uint32_t)length + 1u, &job_id) != 0);
+
+	// Check submit payload fields.
+	memset(&submit, 0, sizeof(submit));
+	submit.argc = 2;
+	strcpy(submit.argv[0], "sleep");
+	strcpy(submit.argv[1], "5");
+	submit.cores = 2;
+	submit.ram_mb = 1024;
+	submit.time_sec = 10;
+	submit.prio = 1;
+	submit.gpu = 0;
+	assert(msg_encode_submit(buffer, sizeof(buffer), &length, &submit) == 0);
+	assert(msg_decode_submit(buffer, (uint32_t)length, &decoded_submit) == 0);
+	assert(decoded_submit.argc == 2 && strcmp(decoded_submit.argv[1], "5") == 0);
+	assert(decoded_submit.cores == 2 && decoded_submit.ram_mb == 1024);
+	assert(decoded_submit.time_sec == 10 && decoded_submit.prio == 1 && decoded_submit.gpu == 0);
+	assert(msg_decode_submit(buffer, (uint32_t)length - 1u, &decoded_submit) != 0);
+
+	// Check status payload fields, including an unassigned worker id of -1.
+	memset(&status, 0, sizeof(status));
+	status.job_id = 3;
+	strcpy(status.owner, "kg");
+	status.state = JOB_QUEUED;
+	status.worker_id = -1;
+	status.ram_mb = 500;
+	strcpy(status.command, "./long_script");
+	assert(msg_encode_status(buffer, sizeof(buffer), &length, &status) == 0);
+	assert(msg_decode_status(buffer, (uint32_t)length, &decoded_status) == 0);
+	assert(decoded_status.job_id == 3 && decoded_status.worker_id == -1);
+	assert(strcmp(decoded_status.owner, "kg") == 0 && decoded_status.ram_mb == 500);
+	assert(strcmp(decoded_status.command, "./long_script") == 0);
+
+	// Check nodes rows and the advertised wire size.
+	memset(nodes, 0, sizeof(nodes));
+	nodes[0].id = 1001;
+	nodes[0].total_ram_mb = 2048;
+	nodes[1].id = 1002;
+	nodes[1].state = WORKER_DEAD;
+	assert(msg_encode_nodes(buffer, sizeof(buffer), &length, nodes, 2) == 0);
+	assert(length == 4u + 2u * MSG_NODE_WIRE_SIZE);
+	assert(msg_decode_nodes(buffer, (uint32_t)length, decoded_nodes, 2, &count) == 0 && count == 2);
+	assert(decoded_nodes[0].id == 1001 && decoded_nodes[0].total_ram_mb == 2048);
+	assert(decoded_nodes[1].state == WORKER_DEAD);
+	assert(msg_decode_nodes(buffer, (uint32_t)length, decoded_nodes, 1, &count) != 0);
+
+	// Check logs request and a full-size logs chunk.
+	assert(msg_encode_logs_req(buffer, sizeof(buffer), &length, 9, 1) == 0);
+	assert(msg_decode_logs_req(buffer, (uint32_t)length, &job_id, &flag) == 0);
+	assert(job_id == 9 && flag == 1);
+	memset(big + MSG_LOGS_CHUNK_HEADER, 'x', JOB_OUTPUT_CAP);
+	assert(msg_encode_logs_chunk(big, sizeof(big), &length, 9, 1, big + MSG_LOGS_CHUNK_HEADER,
+	                             JOB_OUTPUT_CAP) == 0);
+	assert(msg_decode_logs_chunk(big, (uint32_t)length, &job_id, &flag, &data, &data_len) == 0);
+	assert(job_id == 9 && flag == 1 && data_len == JOB_OUTPUT_CAP && data[0] == 'x');
+
+	// Check cancel acknowledgement and event text.
+	assert(msg_encode_cancel_ack(buffer, sizeof(buffer), &length, 4, JOB_QUEUED) == 0);
+	assert(msg_decode_cancel_ack(buffer, (uint32_t)length, &job_id, &flag) == 0);
+	assert(job_id == 4 && flag == JOB_QUEUED);
+	assert(msg_encode_event(buffer, sizeof(buffer), &length, "Job 1 COMPLETED successfully.") == 0);
+	assert(msg_decode_event(buffer, (uint32_t)length, text, sizeof(text)) == 0);
+	assert(strcmp(text, "Job 1 COMPLETED successfully.") == 0);
+}
+
 // Run every assert-based framing and payload test.
 int main(void)
 {
+	test_username_valid();
+	test_command_messages();
 	test_header();
 	test_round_trip();
 	test_empty_payload();

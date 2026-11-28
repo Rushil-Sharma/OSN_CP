@@ -12,6 +12,10 @@ typedef enum {
 	LOG_CLIENT
 } log_source_t;
 
+// Return the printable name of a worker or job state.
+const char *worker_state_name(worker_state_t state);
+const char *job_state_name(job_state_t state);
+
 // Print one timestamped, tagged, thread-safe log line.
 void log_line(log_source_t source, int32_t worker_id, const char *fmt, ...);
 

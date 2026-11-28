@@ -343,3 +343,369 @@ int msg_decode_error(const uint8_t *buf, uint32_t len, uint16_t *code, char *tex
 	}
 	return dec_str(&cursor, text, cap);
 }
+
+// Reject trailing bytes so a payload must match its message layout exactly.
+static int dec_done(const dec_cursor_t *cursor)
+{
+	if (cursor->pos != cursor->len) {
+		errno = EINVAL;
+		return -1;
+	}
+	return 0;
+}
+
+// Return 1 for a valid username: 1-31 chars of letters, digits, '_', '-', '.'.
+int msg_username_valid(const char *user)
+{
+	size_t len;
+
+	if (user == NULL) {
+		return 0;
+	}
+	len = strlen(user);
+	if (len == 0 || len >= MAX_USERNAME) {
+		return 0;
+	}
+	for (size_t i = 0; i < len; i++) {
+		char c = user[i];
+		int ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+		         c == '_' || c == '-' || c == '.';
+
+		if (!ok) {
+			return 0;
+		}
+	}
+	return 1;
+}
+
+// Encode a payload holding only a job id.
+int msg_encode_job_id(uint8_t *buf, size_t cap, size_t *out_len, uint32_t job_id)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, job_id) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a payload holding only a job id.
+int msg_decode_job_id(const uint8_t *buf, uint32_t len, uint32_t *job_id)
+{
+	dec_cursor_t cursor;
+
+	if (job_id == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, job_id) != 0) {
+		return -1;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode a submit request: argc, argv strings, then resource fields.
+int msg_encode_submit(uint8_t *buf, size_t cap, size_t *out_len, const msg_submit_t *submit)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL || submit == NULL || submit->argc == 0 || submit->argc > MAX_ARGV) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, submit->argc) != 0) {
+		return -1;
+	}
+	for (uint32_t i = 0; i < submit->argc; i++) {
+		if (enc_str(&cursor, submit->argv[i]) != 0) {
+			return -1;
+		}
+	}
+	if (enc_u32(&cursor, submit->cores) != 0 || enc_u64(&cursor, submit->ram_mb) != 0 ||
+	    enc_u32(&cursor, submit->time_sec) != 0 || enc_u32(&cursor, submit->prio) != 0 ||
+	    enc_u32(&cursor, submit->gpu) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a submit request.
+int msg_decode_submit(const uint8_t *buf, uint32_t len, msg_submit_t *submit)
+{
+	dec_cursor_t cursor;
+
+	if (submit == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	memset(submit, 0, sizeof(*submit));
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, &submit->argc) != 0 || submit->argc == 0 || submit->argc > MAX_ARGV) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (uint32_t i = 0; i < submit->argc; i++) {
+		if (dec_str(&cursor, submit->argv[i], MAX_ARG_LEN) != 0) {
+			return -1;
+		}
+	}
+	if (dec_u32(&cursor, &submit->cores) != 0 || dec_u64(&cursor, &submit->ram_mb) != 0 ||
+	    dec_u32(&cursor, &submit->time_sec) != 0 || dec_u32(&cursor, &submit->prio) != 0 ||
+	    dec_u32(&cursor, &submit->gpu) != 0) {
+		return -1;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode a status reply.
+int msg_encode_status(uint8_t *buf, size_t cap, size_t *out_len, const msg_status_t *status)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL || status == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, status->job_id) != 0 || enc_str(&cursor, status->owner) != 0 ||
+	    enc_u8(&cursor, status->state) != 0 || enc_u32(&cursor, (uint32_t)status->worker_id) != 0 ||
+	    enc_u32(&cursor, status->cores) != 0 || enc_u64(&cursor, status->ram_mb) != 0 ||
+	    enc_u32(&cursor, status->time_sec) != 0 || enc_u32(&cursor, status->prio) != 0 ||
+	    enc_u32(&cursor, status->gpu) != 0 || enc_u8(&cursor, status->attempts) != 0 ||
+	    enc_str(&cursor, status->command) != 0 || enc_str(&cursor, status->reason) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a status reply.
+int msg_decode_status(const uint8_t *buf, uint32_t len, msg_status_t *status)
+{
+	dec_cursor_t cursor;
+	uint32_t worker_raw;
+
+	if (status == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	memset(status, 0, sizeof(*status));
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, &status->job_id) != 0 ||
+	    dec_str(&cursor, status->owner, sizeof(status->owner)) != 0 ||
+	    dec_u8(&cursor, &status->state) != 0 || dec_u32(&cursor, &worker_raw) != 0 ||
+	    dec_u32(&cursor, &status->cores) != 0 || dec_u64(&cursor, &status->ram_mb) != 0 ||
+	    dec_u32(&cursor, &status->time_sec) != 0 || dec_u32(&cursor, &status->prio) != 0 ||
+	    dec_u32(&cursor, &status->gpu) != 0 || dec_u8(&cursor, &status->attempts) != 0 ||
+	    dec_str(&cursor, status->command, sizeof(status->command)) != 0 ||
+	    dec_str(&cursor, status->reason, sizeof(status->reason)) != 0) {
+		return -1;
+	}
+	status->worker_id = (int32_t)worker_raw;
+	return dec_done(&cursor);
+}
+
+// Encode a nodes reply: a row count followed by fixed-size worker rows.
+int msg_encode_nodes(uint8_t *buf, size_t cap, size_t *out_len, const msg_node_t *nodes, uint32_t count)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL || (count > 0 && nodes == NULL) || count > MAX_WORKERS) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, count) != 0) {
+		return -1;
+	}
+	for (uint32_t i = 0; i < count; i++) {
+		const msg_node_t *n = &nodes[i];
+
+		if (enc_u32(&cursor, (uint32_t)n->id) != 0 || enc_u8(&cursor, n->state) != 0 ||
+		    enc_u32(&cursor, n->free_cores) != 0 || enc_u32(&cursor, n->total_cores) != 0 ||
+		    enc_u64(&cursor, n->free_ram_mb) != 0 || enc_u64(&cursor, n->total_ram_mb) != 0 ||
+		    enc_u32(&cursor, n->free_gpu) != 0 || enc_u32(&cursor, n->total_gpu) != 0 ||
+		    enc_u32(&cursor, n->running_jobs) != 0) {
+			return -1;
+		}
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a nodes reply into at most cap rows.
+int msg_decode_nodes(const uint8_t *buf, uint32_t len, msg_node_t *nodes, uint32_t cap, uint32_t *count)
+{
+	dec_cursor_t cursor;
+
+	if (nodes == NULL || count == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, count) != 0 || *count > cap) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (uint32_t i = 0; i < *count; i++) {
+		msg_node_t *n = &nodes[i];
+		uint32_t id_raw;
+
+		if (dec_u32(&cursor, &id_raw) != 0 || dec_u8(&cursor, &n->state) != 0 ||
+		    dec_u32(&cursor, &n->free_cores) != 0 || dec_u32(&cursor, &n->total_cores) != 0 ||
+		    dec_u64(&cursor, &n->free_ram_mb) != 0 || dec_u64(&cursor, &n->total_ram_mb) != 0 ||
+		    dec_u32(&cursor, &n->free_gpu) != 0 || dec_u32(&cursor, &n->total_gpu) != 0 ||
+		    dec_u32(&cursor, &n->running_jobs) != 0) {
+			return -1;
+		}
+		n->id = (int32_t)id_raw;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode a logs request (job id + follow flag).
+int msg_encode_logs_req(uint8_t *buf, size_t cap, size_t *out_len, uint32_t job_id, uint8_t follow)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, job_id) != 0 || enc_u8(&cursor, follow) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a logs request (job id + follow flag).
+int msg_decode_logs_req(const uint8_t *buf, uint32_t len, uint32_t *job_id, uint8_t *follow)
+{
+	dec_cursor_t cursor;
+
+	if (job_id == NULL || follow == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, job_id) != 0 || dec_u8(&cursor, follow) != 0) {
+		return -1;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode a logs chunk: job id, final flag, byte count, then raw output bytes.
+int msg_encode_logs_chunk(uint8_t *buf, size_t cap, size_t *out_len, uint32_t job_id, uint8_t final,
+                          const uint8_t *data, uint32_t data_len)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL || (data_len > 0 && data == NULL)) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, job_id) != 0 || enc_u8(&cursor, final) != 0 ||
+	    enc_u32(&cursor, data_len) != 0 || (data_len > 0 && enc_bytes(&cursor, data, data_len) != 0)) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a logs chunk; data points into buf, so it lives as long as buf does.
+int msg_decode_logs_chunk(const uint8_t *buf, uint32_t len, uint32_t *job_id, uint8_t *final,
+                          const uint8_t **data, uint32_t *data_len)
+{
+	dec_cursor_t cursor;
+
+	if (job_id == NULL || final == NULL || data == NULL || data_len == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, job_id) != 0 || dec_u8(&cursor, final) != 0 ||
+	    dec_u32(&cursor, data_len) != 0 || *data_len != cursor.len - cursor.pos) {
+		errno = EINVAL;
+		return -1;
+	}
+	*data = buf + cursor.pos;
+	return 0;
+}
+
+// Encode a cancel acknowledgement (job id + state before cancelling).
+int msg_encode_cancel_ack(uint8_t *buf, size_t cap, size_t *out_len, uint32_t job_id, uint8_t old_state)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, job_id) != 0 || enc_u8(&cursor, old_state) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a cancel acknowledgement (job id + state before cancelling).
+int msg_decode_cancel_ack(const uint8_t *buf, uint32_t len, uint32_t *job_id, uint8_t *old_state)
+{
+	dec_cursor_t cursor;
+
+	if (job_id == NULL || old_state == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, job_id) != 0 || dec_u8(&cursor, old_state) != 0) {
+		return -1;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode an [Event] text line.
+int msg_encode_event(uint8_t *buf, size_t cap, size_t *out_len, const char *text)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL || text == NULL || strlen(text) > MSG_TEXT_CAP) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_str(&cursor, text) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode an [Event] text line.
+int msg_decode_event(const uint8_t *buf, uint32_t len, char *text, size_t cap)
+{
+	dec_cursor_t cursor;
+
+	if (text == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_str(&cursor, text, cap) != 0) {
+		return -1;
+	}
+	return dec_done(&cursor);
+}

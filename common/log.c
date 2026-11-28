@@ -10,7 +10,7 @@
 static pthread_mutex_t g_log_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // Return the printable name of a worker state.
-static const char *worker_state_name(worker_state_t state)
+const char *worker_state_name(worker_state_t state)
 {
 	switch (state) {
 	case WORKER_ALIVE: return "ALIVE";
@@ -22,7 +22,7 @@ static const char *worker_state_name(worker_state_t state)
 }
 
 // Return the printable name of a job state.
-static const char *job_state_name(job_state_t state)
+const char *job_state_name(job_state_t state)
 {
 	switch (state) {
 	case JOB_QUEUED: return "QUEUED";

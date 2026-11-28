@@ -50,6 +50,24 @@ int send_msg(int fd, msg_type_t type, const void *payload, uint32_t length)
 		return -1;
 	}
 	msg_header_encode(header, type, length);
+	// Write header + payload in one send so Nagle + delayed ACK can't stall each frame ~40ms.
+	if (length > 0) {
+		uint8_t small[OSN_HEADER_SIZE + 1024u];
+		uint8_t *frame = length <= 1024u ? small : malloc(OSN_HEADER_SIZE + (size_t)length);
+
+		if (frame != NULL) {
+			int rc;
+
+			memcpy(frame, header, sizeof(header));
+			memcpy(frame + OSN_HEADER_SIZE, payload, length);
+			rc = send_all(fd, frame, OSN_HEADER_SIZE + (size_t)length);
+			if (frame != small) {
+				free(frame);
+			}
+			return rc;
+		}
+	}
+	// Header-only frames, or the rare malloc failure, fall back to separate writes.
 	if (send_all(fd, header, sizeof(header)) != 0) {
 		return -1;
 	}
@@ -130,6 +148,7 @@ const char *msg_type_name(msg_type_t type)
 	case MSG_NODES_REPLY: return "NODES_REPLY";
 	case MSG_LOGS_CHUNK: return "LOGS_CHUNK";
 	case MSG_ERROR: return "ERROR";
+	case MSG_CANCEL_ACK: return "CANCEL_ACK";
 	case MSG_WORKER_REGISTER: return "WORKER_REGISTER";
 	case MSG_HEARTBEAT: return "HEARTBEAT";
 	case MSG_CACHE_REPORT: return "CACHE_REPORT";
