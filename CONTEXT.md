@@ -38,7 +38,7 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - `common/net.{h,c}` provides `send_all()`, `recv_all()`, `RECV_OK`, `RECV_EOF`, and `RECV_ERR`.
 - `common/protocol.{h,c}` provides all `MSG_*` types, header encode/decode, `send_msg()`, `recv_msg()`, version/type/bounds checks, and `msg_type_name()`.
 - M1+ behavior is isolated in named stubs such as `m1_scheduling_pass_stub`, `m1_client_command_stub`, `m2_worker_message_stub`, and `kill_running_jobs_stub`.
-- `TODO` has 9-20, 26, 27, 31, 34, 36, and 37 marked `[x]`; remaining M1+ items are still `[ ]`.
+- `TODO` tasks 1-11 are marked `[x]`; remaining M1+ items are still `[ ]`.
 
 ## Verification performed
 

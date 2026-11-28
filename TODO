@@ -1,203 +1,203 @@
 DISTRIBUTED COMPUTE CLUSTER - PROJECT TODO
 Deadline: 2 December 2026
  
-Mark done with [x]. Put owner initials after each task if you like.
+Tasks are numbered 1-90. Mark done with [x]. Put owner initials after each task.
  
 ==========================================================================
 M0 SETUP
 ==========================================================================
-[x] Repo, Makefile with scheduler/worker/client targets, layout:
+1. [x] Repo, Makefile with scheduler/worker/client targets, layout:
     common/, scheduler/, worker/, client/  (shared code lives ONCE in common/)
-[x] Split sections between the 3 members; agree on commit message style
+2. [x] Split sections between the 3 members; agree on commit message style
     (everyone commits own work, no "fix"/"asdf" commits)
-[x] Design wire protocol: header (type + length), all message types,
+3. [x] Design wire protocol: header (type + length), all message types,
     send_all()/recv_all() framing helpers
-[x] Job + worker structs for the FULL lifecycle now:
+4. [x] Job + worker structs for the FULL lifecycle now:
     job states QUEUED RUNNING COMPLETED FAILED CANCELLED WAITING LOST FAILED_PERMANENT
     worker states ALIVE SUSPECTED DEAD DRAINING
     fields: attempts, deps, group, preemptible, cron id, hash, checkpoint,
     migrated-from worker, preempt hold
-[x] Pick concurrency model (event loop OR thread-per-connection) and stick to it
+5. [x] Pick concurrency model (event loop OR thread-per-connection) and stick to it
 
 ==========================================================================
 M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
 ==========================================================================
 -- 7 Logging (10) --
-[x] (M) Central log_line(): [HH:MM:SS] 24h + [SCHEDULER] / [WORKER <id>] tags
-[x] (M) Log every worker/job state change, every scheduling decision (worker + why),
+6. [x] (M) Central log_line(): [HH:MM:SS] 24h + [SCHEDULER] / [WORKER <id>] tags
+7. [x] (M) Log every worker/job state change, every scheduling decision (worker + why),
     every discovery outcome
  
 -- 2A Scheduler (5) --
-[x] (M) ./scheduler <port> <FIFO|PRIORITY> [-discovery-port N] (default 9999), startup lines
+8. [x] (M) ./scheduler <port> <FIFO|PRIORITY> [-discovery-port N] (default 9999), startup lines
  
 -- 2B Worker (10) --
-[x] (R) CLI parsing; clamp cores (sysconf _SC_NPROCESSORS_ONLN) and RAM
+9. [x] (R) CLI parsing; clamp cores (sysconf _SC_NPROCESSORS_ONLN) and RAM
     (_SC_PHYS_PAGES * _SC_PAGESIZE, or HW_MEMSIZE on macOS) with warning; don't clamp gpu
-[x] (R) Registration: scheduler assigns unique worker ID in response; log without ID before
-[x] (R) On lost connection: kill running jobs, rediscover, re-register as NEW worker (new ID)
+10. [x] (R) Registration: scheduler assigns unique worker ID in response; log without ID before
+11. [x] (R) On lost connection: kill running jobs, rediscover, re-register as NEW worker (new ID)
  
 -- 2C Discovery (10) --
-[ ] (M) Scheduler UDP responder, SO_REUSEADDR/SO_REUSEPORT, replies with TCP addr+port
-[ ] (R) Shared discovery client: broadcast, 2s timeout, 3 retries; fallback to CLI address
+12. [ ] (M) Scheduler UDP responder, SO_REUSEADDR/SO_REUSEPORT, replies with TCP addr+port
+13. [ ] (R) Shared discovery client: broadcast, 2s timeout, 3 retries; fallback to CLI address
     (log "No discovery reply, using fallback ..."); error+exit if no fallback
-[ ] (R) Re-run discovery whenever the scheduler connection drops
-[ ] (M) Test on personal hotspot, Linux + macOS (NOT wifi-iiith; unique -discovery-port)
+14. [ ] (R) Re-run discovery whenever the scheduler connection drops
+15. [ ] (M) Test on personal hotspot, Linux + macOS (NOT wifi-iiith; unique -discovery-port)
  
 -- 3 Client: Login (10) --
-[ ] (R) Client CLI with discovery + fallback
-[ ] (R) Username prompt, validate 1-31 chars of [A-Za-z0-9_.-], re-ask if bad; -user skips prompt
-[ ] (R) Username is first message; auto-resend on reconnect; allow duplicate usernames
+16. [ ] (R) Client CLI with discovery + fallback
+17. [ ] (R) Username prompt, validate 1-31 chars of [A-Za-z0-9_.-], re-ask if bad; -user skips prompt
+18. [ ] (R) Username is first message; auto-resend on reconnect; allow duplicate usernames
  
 -- 3 Client: Commands (15) --
-[ ] (R) select()/poll() on stdin + socket (or reader thread) so [Event]s show at prompt
-[ ] (R) nodes, submit, status, logs, cancel
-[ ] (R) submit flags: -cores -ram -time -prio (required), -gpu (optional, default 0)
-[ ] (H) Scheduler: job owned by user, user named in log lines,
+19. [ ] (R) select()/poll() on stdin + socket (or reader thread) so [Event]s show at prompt
+20. [ ] (R) nodes, submit, status, logs, cancel
+21. [ ] (R) submit flags: -cores -ram -time -prio (required), -gpu (optional, default 0)
+22. [ ] (H) Scheduler: job owned by user, user named in log lines,
     [Event] only to owner on every state change + worker SUSPECTED/DEAD warnings
  
 -- 4A Concurrency (30) --
-[ ] (M) Implement chosen model; status/nodes never wait behind a scheduling decision
-[ ] (M) Bounded thread-safe queue, capacity 1024; QUEUE_FULL without blocking;
+23. [ ] (M) Implement chosen model; status/nodes never wait behind a scheduling decision
+24. [ ] (M) Bounded thread-safe queue, capacity 1024; QUEUE_FULL without blocking;
     requeued jobs (after worker death etc.) never dropped
-[ ] (M) Schedule on: submit, job finish, worker available, heartbeat, AND >= once per second
+25. [ ] (M) Schedule on: submit, job finish, worker available, heartbeat, AND >= once per second
  
 -- 4B Algorithms (25) --
-[ ] (M) Pass: order -> match (ALIVE + enough free cores/RAM/GPU) -> choose -> no match
+26. [ ] (M) Pass: order -> match (ALIVE + enough free cores/RAM/GPU) -> choose -> no match
     (FIFO: stop pass; PRIORITY: next job)
-[ ] (M) PRIORITY aging: +1 per 10s waiting, floor 1; ties -> older first
+27. [ ] (M) PRIORITY aging: +1 per 10s waiting, floor 1; ties -> older first
  
 -- Binary transfer --
-[ ] (M) Scheduler reads executable at submitted path, sends to worker;
+28. [ ] (M) Scheduler reads executable at submitted path, sends to worker;
     bare PATH command (e.g. ls) runs by name, no transfer
  
 -- 5A Isolation (30) --
-[ ] (R) fork() + execvp(), NEVER system()
-[ ] (R) Child, in this order:
+29. [ ] (R) fork() + execvp(), NEVER system()
+30. [ ] (R) Child, in this order:
     1. mkdir /tmp/osn_job_<id>, chdir, copy binary (skip for PATH cmds), chown to nobody
     2. getpwnam("nobody"), setgid() THEN setuid(), check returns, don't run on failure
     3. setrlimit RLIMIT_CPU = time
     4. setrlimit RLIMIT_AS = ram MB -> bytes
     5. setrlimit RLIMIT_NPROC ~64 (per USER, shared by all jobs as nobody!)
-[ ] (R) Not root -> clear warning, skip chown + privilege drop, keep going (TA tests with sudo)
-[ ] (R) Wall-clock deadline in worker -> SIGKILL; report "Wall-clock timeout exceeded (Ns limit)"
+31. [ ] (R) Not root -> clear warning, skip chown + privilege drop, keep going (TA tests with sudo)
+32. [ ] (R) Wall-clock deadline in worker -> SIGKILL; report "Wall-clock timeout exceeded (Ns limit)"
     (also for SIGXCPU)
-[ ] (R) macOS: poll proc_pidinfo() resident memory, SIGKILL over ram (macOS ignores RLIMIT_AS)
-[ ] (R) Delete /tmp/osn_job_<id> after final report sent
+33. [ ] (R) macOS: poll proc_pidinfo() resident memory, SIGKILL over ram (macOS ignores RLIMIT_AS)
+34. [ ] (R) Delete /tmp/osn_job_<id> after final report sent
  
 -- 5B Output capture (10) --
-[ ] (R) dup2 stdout+stderr -> /tmp/osn_job_<id>/output.log before execvp
-[ ] (R) Every ~500ms send new bytes to scheduler; at end send remainder, then completed/failed
+35. [ ] (R) dup2 stdout+stderr -> /tmp/osn_job_<id>/output.log before execvp
+36. [ ] (R) Every ~500ms send new bytes to scheduler; at end send remainder, then completed/failed
  
 -- M1 test --
-[ ] (M) End-to-end: submit, run, output, FIFO vs PRIORITY, aging, QUEUE_FULL, limits, sudo
+37. [ ] (M) End-to-end: submit, run, output, FIFO vs PRIORITY, aging, QUEUE_FULL, limits, sudo
  
 ==========================================================================
 M2 RESILIENCE & TELEMETRY - Sections 4C-D, 5C-E, 6, 9
 ==========================================================================
 -- 4C Heartbeats & fault tolerance (40) --
-[ ] (H) Heartbeat every 2s: CPU load, running job count, per-job telemetry
-[ ] (H) ALIVE -> SUSPECTED (1 miss) -> DEAD (3 consecutive misses, ~6s);
+38. [ ] (H) Heartbeat every 2s: CPU load, running job count, per-job telemetry
+39. [ ] (H) ALIVE -> SUSPECTED (1 miss) -> DEAD (3 consecutive misses, ~6s);
     SUSPECTED -> ALIVE on heartbeat; only ALIVE gets new jobs
-[ ] (M) WARNING events (SUSPECTED / DEAD) to users with jobs on that worker
-[ ] (H) Rescue: RUNNING -> LOST -> QUEUED, count attempts;
+40. [ ] (M) WARNING events (SUSPECTED / DEAD) to users with jobs on that worker
+41. [ ] (H) Rescue: RUNNING -> LOST -> QUEUED, count attempts;
     MAX_ATTEMPTS = 3 (#define, not a flag) -> FAILED_PERMANENT + event
  
 -- 4D Load-aware (10) --
-[ ] (R) CPU load = getloadavg() / cores * 100, cap 100
-[ ] (M) Pick lower CPU load, tie -> fewer jobs; log "Job X -> Worker A (chosen over B: CPU 8% vs 61%)"
+42. [ ] (R) CPU load = getloadavg() / cores * 100, cap 100
+43. [ ] (M) Pick lower CPU load, tie -> fewer jobs; log "Job X -> Worker A (chosen over B: CPU 8% vs 61%)"
  
 -- 5C Cancellation (10) --
-[ ] (H) QUEUED -> remove from queue, CANCELLED
-[ ] (R) RUNNING -> SIGKILL + waitpid (no zombies), free cores/RAM, CANCELLED
-[ ] (H) WAITING -> CANCELLED
-[ ] (H) Event: "Job N RUNNING -> CANCELLED (requested by <user>)"
+44. [ ] (H) QUEUED -> remove from queue, CANCELLED
+45. [ ] (R) RUNNING -> SIGKILL + waitpid (no zombies), free cores/RAM, CANCELLED
+46. [ ] (H) WAITING -> CANCELLED
+47. [ ] (H) Event: "Job N RUNNING -> CANCELLED (requested by <user>)"
  
 -- 5D Telemetry (10) --
-[ ] (R) Linux /proc/<pid>/stat + statm; macOS proc_pidinfo() (#include <libproc.h>)
+48. [ ] (R) Linux /proc/<pid>/stat + statm; macOS proc_pidinfo() (#include <libproc.h>)
     RAM, page faults, CPU time; peak RAM for finished jobs
     (getrusage(RUSAGE_CHILDREN) does NOT work for running jobs)
-[ ] (H) status shows live figures; test with a memory-leaking program
+49. [ ] (H) status shows live figures; test with a memory-leaking program
  
 -- 5E Crash diagnosis (10) --
-[ ] (R) WIFEXITED / WIFSIGNALED / WTERMSIG; plain-word names (SIGSEGV, SIGFPE, ...)
-[ ] (R) Non-zero exit codes incl. 127 (command not found)
-[ ] (R) Worker-known reasons (timeout, cancel, preempt, migrate) instead of signal numbers
+50. [ ] (R) WIFEXITED / WIFSIGNALED / WTERMSIG; plain-word names (SIGSEGV, SIGFPE, ...)
+51. [ ] (R) Non-zero exit codes incl. 127 (command not found)
+52. [ ] (R) Worker-known reasons (timeout, cancel, preempt, migrate) instead of signal numbers
  
 -- 6 Streaming logs (20) --
-[ ] (H) Scheduler keeps >= last 64 KB output per job; plain `logs` works after job printed
-[ ] (H) logs -f: subscribe, stream live (no buffering till end), "-- Job N finished --" footer
-[ ] (R) Ctrl+C in follow mode returns to prompt, does NOT exit client
+53. [ ] (H) Scheduler keeps >= last 64 KB output per job; plain `logs` works after job printed
+54. [ ] (H) logs -f: subscribe, stream live (no buffering till end), "-- Job N finished --" footer
+55. [ ] (R) Ctrl+C in follow mode returns to prompt, does NOT exit client
  
 -- 9 Draining (10) --
-[ ] (R) `drain` on worker stdin OR SIGINT -> DRAINING (no client command for this)
-[ ] (H) Scheduler excludes DRAINING; worker keeps heartbeating, finishes jobs, sends output, exits
-[ ] (H) Drained worker leaving is NOT a failure, nothing rescued; log the transition
+56. [ ] (R) `drain` on worker stdin OR SIGINT -> DRAINING (no client command for this)
+57. [ ] (H) Scheduler excludes DRAINING; worker keeps heartbeating, finishes jobs, sends output, exits
+58. [ ] (H) Drained worker leaving is NOT a failure, nothing rescued; log the transition
  
 -- M2 test --
-[ ] (M) Kill worker mid-job (retry elsewhere), retry limit, cancel in each state,
+59. [ ] (M) Kill worker mid-job (retry elsewhere), retry limit, cancel in each state,
     drain, telemetry, crash reasons
  
 ==========================================================================
 M3 ADVANCED SCHEDULING  - Sections 8, 10, 11, 12, 13
 ==========================================================================
 -- 8 Dependencies & groups (20) --
-[ ] (H) -depends-on 1,2,g3 and -group N; resolve gN at submit time;
+60. [ ] (H) -depends-on 1,2,g3 and -group N; resolve gN at submit time;
     reject unknown job/group IDs
-[ ] (H) Start WAITING; -> QUEUED when all deps COMPLETED; WAITING excluded from ordering
-[ ] (H) Dep FAILED / FAILED_PERMANENT / CANCELLED -> CANCELLED, cascading down the chain; events
+61. [ ] (H) Start WAITING; -> QUEUED when all deps COMPLETED; WAITING excluded from ordering
+62. [ ] (H) Dep FAILED / FAILED_PERMANENT / CANCELLED -> CANCELLED, cascading down the chain; events
  
 -- 10 Preemption (20) --
-[ ] (R) -preemptible flag
-[ ] (M) P1 job with no match: find worker where killing preemptible jobs frees enough;
+63. [ ] (R) -preemptible flag
+64. [ ] (M) P1 job with no match: find worker where killing preemptible jobs frees enough;
     kill minimal set (lowest prio first, then newest) with SIGKILL
-[ ] (H) Preempted -> QUEUED, no attempt cost
-[ ] (M) Hold preempted jobs until the P1 job starts; release hold if P1 cancelled/fails
+65. [ ] (H) Preempted -> QUEUED, no attempt cost
+66. [ ] (M) Hold preempted jobs until the P1 job starts; release hold if P1 cancelled/fails
  
 -- 11 Fair-share (15) --
-[ ] (H) Track cores held per user by RUNNING jobs
-[ ] (M) User > 50% of non-DEAD cores AND another non-over-quota user has QUEUED job -> skip
+67. [ ] (H) Track cores held per user by RUNNING jobs
+68. [ ] (M) User > 50% of non-DEAD cores AND another non-over-quota user has QUEUED job -> skip
     (even if higher priority; exactly 50% is NOT over)
-[ ] (M) Log skip once per pair per pass
+69. [ ] (M) Log skip once per pair per pass
  
 -- 12 Cron (15) --
-[ ] (H) -every N creates template (own ID numbering from 1); reject with -depends-on
-[ ] (H) ~1s timer injects copies: first immediately, then every N s (even if previous running)
-[ ] (H) Event "Cron X injected Job Y (run #n)"
-[ ] (H) `crons` (id, interval, runs, user, command); `cancel-cron` (errors for unknown/cancelled)
+70. [ ] (H) -every N creates template (own ID numbering from 1); reject with -depends-on
+71. [ ] (H) ~1s timer injects copies: first immediately, then every N s (even if previous running)
+72. [ ] (H) Event "Cron X injected Job Y (run #n)"
+73. [ ] (H) `crons` (id, interval, runs, user, command); `cancel-cron` (errors for unknown/cancelled)
  
 -- 13 Caching (20 + 5 + 10) --
-[ ] (R) Hash binary (SHA-256/SHA-1); worker cache/ (OSN_CACHE_DIR) named by file + hash
-[ ] (H) Scheduler tracks hashes per worker; full send first time, "already cached" after
-[ ] (R) Worker reconnect: scan cache, report hashes
-[ ] (R) Missing cached file -> worker reports, scheduler drops hash + re-sends, no attempt cost
-[ ] (R) Unreadable/PATH command -> run by path, no caching
-[ ] (M) (5) Choice order: idle > cached > lower CPU > fewer jobs; log why winner won
-[ ] (H) (10) LRU eviction, OSN_CACHE_SIZE_MB (default 512); "used" = job started from it;
+74. [ ] (R) Hash binary (SHA-256/SHA-1); worker cache/ (OSN_CACHE_DIR) named by file + hash
+75. [ ] (H) Scheduler tracks hashes per worker; full send first time, "already cached" after
+76. [ ] (R) Worker reconnect: scan cache, report hashes
+77. [ ] (R) Missing cached file -> worker reports, scheduler drops hash + re-sends, no attempt cost
+78. [ ] (R) Unreadable/PATH command -> run by path, no caching
+79. [ ] (M) (5) Choice order: idle > cached > lower CPU > fewer jobs; log why winner won
+80. [ ] (H) (10) LRU eviction, OSN_CACHE_SIZE_MB (default 512); "used" = job started from it;
     never evict just-stored or in-use file; report remaining hashes after eviction
  
 -- M3 test --
-[ ] (M) Dep chain + cascade, preemption, quota example (4-core worker), cron,
+81. [ ] (M) Dep chain + cascade, preemption, quota example (4-core worker), cron,
     cache hit/miss, 1-byte change, deleted cache file,
     A,B,A,C with OSN_CACHE_SIZE_MB=2 (B evicted, not A)
  
 ==========================================================================
 M4 CHECKPOINTS & MIGRATION - Section 14
 ==========================================================================
-[ ] (R) OSN_CHECKPOINT_DIR = /tmp/osn_job_<id>/checkpoint/, chown to nobody
-[ ] (R) Worker checks `state` mtime every ~500ms, sends new checkpoint; scheduler keeps latest per job
-[ ] (M) On ANY restart (migrate, preempt, dead worker): send checkpoint, THEN binary/cached msg;
+82. [ ] (R) OSN_CHECKPOINT_DIR = /tmp/osn_job_<id>/checkpoint/, chown to nobody
+83. [ ] (R) Worker checks `state` mtime every ~500ms, sends new checkpoint; scheduler keeps latest per job
+84. [ ] (M) On ANY restart (migrate, preempt, dead worker): send checkpoint, THEN binary/cached msg;
     worker places it before starting job
-[ ] (M) migrate <id>: SIGTERM, SIGKILL after 2s, QUEUED with no attempt cost,
+85. [ ] (M) migrate <id>: SIGTERM, SIGKILL after 2s, QUEUED with no attempt cost,
     exclude source worker if another qualifies; errors for missing / not RUNNING
-[ ] (H) status shows checkpoint number, size, age
-[ ] (M) Test job that checkpoints (write tmp, rename to state); test migrate + worker kill resume
+86. [ ] (H) status shows checkpoint number, size, age
+87. [ ] (M) Test job that checkpoints (write tmp, rename to state); test migrate + worker kill resume
  
 ==========================================================================
 FINAL
 ==========================================================================
-[ ] (M) Scheduling pass matches "Order of Scheduling Decisions" exactly:
+88. [ ] (M) Scheduling pass matches "Order of Scheduling Decisions" exactly:
     QUEUED only -> aging -> order -> per job: preempt hold -> quota -> match
     (ALIVE, not DRAINING, exclude migrated-from) -> choose (idle > cached > CPU > jobs)
     -> no match (P1 preempt; FIFO stop / PRIORITY next) -> send checkpoint -> send binary
-[ ] (M) Multi-machine run under sudo; no zombies, no leftover /tmp/osn_job_* dirs
-[ ] (M) Review modularity + commit history (balanced, good messages); submit
+89. [ ] (M) Multi-machine run under sudo; no zombies, no leftover /tmp/osn_job_* dirs
+90. [ ] (M) Review modularity + commit history (balanced, good messages); submit
