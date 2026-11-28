@@ -60,6 +60,8 @@ void log_line(log_source_t source, int32_t worker_id, const char *fmt, ...)
 		} else {
 			printf("[WORKER %d] ", (int)worker_id);
 		}
+	} else if (source == LOG_CLIENT) {
+		fputs("[Client] ", stdout);
 	} else {
 		fputs("[SCHEDULER] ", stdout);
 	}
@@ -93,13 +95,9 @@ void log_scheduling_decision(uint32_t job_id, int32_t worker_id, const char *why
 	log_sched("job %u -> worker %d (%s)", job_id, (int)worker_id, why != NULL ? why : "no reason");
 }
 
-// Log a discovery success or failure with the reported address.
+// Log a scheduler discovery responder outcome for one requester.
 void log_discovery_outcome(int success, const char *address, uint16_t port)
 {
-	if (address != NULL && strcmp(address, "stub") == 0) {
-		log_sched("discovery stub armed on port %u", (unsigned int)port);
-		return;
-	}
-	log_sched("discovery %s from %s:%u", success ? "reply" : "failed",
-	          address != NULL ? address : "unknown", (unsigned int)port);
+	log_sched("Discovery request from %s:%u %s", address != NULL ? address : "unknown",
+	          (unsigned int)port, success ? "answered" : "ignored (malformed or reply failed)");
 }

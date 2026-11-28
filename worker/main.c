@@ -13,6 +13,7 @@
 #include <sys/sysctl.h>
 #endif
 
+#include "../common/discovery.h"
 #include "../common/log.h"
 #include "../common/messages.h"
 #include "../common/net.h"
@@ -24,7 +25,7 @@
 #define DEFAULT_WORKER_RAM_MB 512u
 #define DEFAULT_WORKER_GPU 0u
 
-// Limit reconnect attempts so a missing scheduler does not hang the worker.
+// Limit consecutive failed connects so a missing scheduler does not hang the worker.
 #define WORKER_CONNECT_ATTEMPTS 3
 #define WORKER_RETRY_DELAY_SEC 1u
 
@@ -111,14 +112,21 @@ static void clamp_resources(worker_t *worker)
 	worker->free_gpu = worker->total_gpu;
 }
 
-// Parse positional address/port and optional resource flags.
+// Parse optional fallback address/port, resource flags, and the discovery port.
 static int parse_worker_args(int argc, char **argv, const char **address, int *port,
-                             uint32_t *cores, uint64_t *ram_mb, uint32_t *gpu)
+                             uint32_t *cores, uint64_t *ram_mb, uint32_t *gpu,
+                             int *discovery_port)
 {
 	int positional = 0;
 	uint64_t value;
 
 	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-discovery-port") == 0) {
+			if (++i >= argc || parse_port(argv[i], discovery_port) != 0) {
+				return -1;
+			}
+			continue;
+		}
 		if (strcmp(argv[i], "-cores") == 0 || strcmp(argv[i], "-ram") == 0 ||
 		    strcmp(argv[i], "-gpu") == 0) {
 			const char *flag = argv[i];
@@ -156,7 +164,8 @@ static int parse_worker_args(int argc, char **argv, const char **address, int *p
 			return -1;
 		}
 	}
-	return positional == 2 ? 0 : -1;
+	// The fallback address is optional, but an IP without a port is an error.
+	return positional == 0 || positional == 2 ? 0 : -1;
 }
 
 // Fill worker resource fields from parsed CLI values and host limits.
@@ -237,48 +246,77 @@ static int register_once(int fd, const worker_t *worker, int32_t *out_id)
 	return 0;
 }
 
+// Stay connected until the scheduler drops; job messages arrive in later milestones.
+static void serve_until_disconnect(int fd, int32_t worker_id)
+{
+	log_worker(worker_id, "Waiting for jobs...");
+	for (;;) {
+		msg_type_t type;
+		uint8_t *body = NULL;
+		uint32_t body_len = 0;
+
+		if (recv_msg(fd, &type, &body, &body_len) != RECV_OK) {
+			break;
+		}
+		log_worker(worker_id, "message %s not implemented", msg_type_name(type));
+		msg_payload_free(body);
+	}
+	log_worker(worker_id, "Lost connection to scheduler.");
+}
+
 // Print worker command usage to stderr.
 static void usage(const char *program)
 {
-	fprintf(stderr, "Usage: %s <address> <port> [-cores N] [-ram MB] [-gpu N]\n", program);
+	fprintf(stderr, "Usage: %s [<scheduler_ip> <scheduler_port>] [-cores N] [-ram MB] [-gpu N] "
+	        "[-discovery-port N]\n", program);
 }
 
-// Register with the scheduler, retrying through rediscovery after lost connections.
+// Discover the scheduler, register, and rediscover + re-register whenever the link drops.
 int main(int argc, char **argv)
 {
 	const char *address = NULL;
 	worker_t worker;
+	sched_endpoint_t endpoint;
 	uint32_t cores = DEFAULT_WORKER_CORES;
 	uint64_t ram_mb = DEFAULT_WORKER_RAM_MB;
 	uint32_t gpu = DEFAULT_WORKER_GPU;
 	int32_t worker_id = -1;
+	int discovery_port = DISCOVERY_DEFAULT_PORT;
 	int port = 0;
+	int failures = 0;
 	int fd;
-	int attempt;
 
 	signal(SIGPIPE, SIG_IGN);
-	if (parse_worker_args(argc, argv, &address, &port, &cores, &ram_mb, &gpu) != 0) {
+	if (parse_worker_args(argc, argv, &address, &port, &cores, &ram_mb, &gpu,
+	                      &discovery_port) != 0) {
 		usage(argv[0]);
 		return EXIT_FAILURE;
 	}
 	init_worker_resources(&worker, cores, ram_mb, gpu);
-	for (attempt = 1; attempt <= WORKER_CONNECT_ATTEMPTS; attempt++) {
-		fd = connect_tcp(address, port);
+	for (;;) {
+		// Discovery runs at startup and again after every dropped or failed connection.
+		if (discover_or_fallback(discovery_port, address, port, LOG_WORKER, &endpoint) != 0) {
+			fprintf(stderr, "error: no scheduler found via discovery and no fallback "
+			        "<scheduler_ip> <scheduler_port> given\n");
+			return EXIT_FAILURE;
+		}
+		log_worker(-1, "Connecting to scheduler at %s:%d...", endpoint.address, endpoint.port);
+		fd = connect_tcp(endpoint.address, endpoint.port);
 		if (fd >= 0 && register_once(fd, &worker, &worker_id) == 0) {
-			close(fd);
-			return EXIT_SUCCESS;
+			failures = 0;
+			serve_until_disconnect(fd, worker_id);
+		} else {
+			failures++;
 		}
 		if (fd >= 0) {
 			close(fd);
 		}
 		kill_running_jobs_stub(worker_id);
 		worker_id = -1;
-		log_worker(-1, "rediscovering scheduler via fallback %s:%d for re-registration",
-		           address, port);
-		if (attempt < WORKER_CONNECT_ATTEMPTS) {
-			sleep(WORKER_RETRY_DELAY_SEC);
+		if (failures >= WORKER_CONNECT_ATTEMPTS) {
+			log_worker(-1, "registration failed after %d attempts", WORKER_CONNECT_ATTEMPTS);
+			return EXIT_FAILURE;
 		}
+		sleep(WORKER_RETRY_DELAY_SEC);
 	}
-	log_worker(-1, "registration failed after %d attempts", WORKER_CONNECT_ATTEMPTS);
-	return EXIT_FAILURE;
 }

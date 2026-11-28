@@ -31,6 +31,12 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - Worker/job state transitions, scheduling decisions, and discovery outcomes route through common logging helpers.
 - Added one-line `//` comments across all C sources and headers.
 - Added this `CONTEXT.md` summary.
+- Added `common/discovery.{h,c}`: shared UDP discovery client (2 s timeout, 3 attempts) that sends to 255.255.255.255, every interface broadcast address, and 127.0.0.1, then falls back to the CLI address; also encodes/decodes the discovery datagrams.
+- Discovery wire format: request is a bare 8-byte header `MSG_DISCOVER_REQ`; reply is header `MSG_DISCOVER_REPLY` + 4-byte IPv4 + 2-byte TCP port, network byte order. IPv4 `0.0.0.0` means "use the sender address".
+- Added `scheduler/discovery.{h,c}`: UDP responder thread bound with `SO_REUSEADDR` + `SO_REUSEPORT`; replies with the local IPv4 the kernel routes to the requester plus the scheduler TCP port. Startup fails if the bind fails.
+- `worker/main.c` CLI is now `[<ip> <port>] [-cores N] [-ram MB] [-gpu N] [-discovery-port N]`; it runs discovery before every connect, stays connected after registering, and on a drop kills jobs, rediscovers, and re-registers. No reply and no fallback -> error + exit.
+- `client/main.c` CLI is now `[<ip> <port>] -user <name> [-discovery-port N]` with discovery + fallback; `-user` stays mandatory until TODO 17 adds the prompt.
+- `common/log.{h,c}` gained `LOG_CLIENT` (`[Client]` tag); `log_discovery_outcome()` now logs responder outcomes per requester.
 
 ## Existing M0 pieces
 
@@ -38,7 +44,7 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - `common/net.{h,c}` provides `send_all()`, `recv_all()`, `RECV_OK`, `RECV_EOF`, and `RECV_ERR`.
 - `common/protocol.{h,c}` provides all `MSG_*` types, header encode/decode, `send_msg()`, `recv_msg()`, version/type/bounds checks, and `msg_type_name()`.
 - M1+ behavior is isolated in named stubs such as `m1_scheduling_pass_stub`, `m1_client_command_stub`, `m2_worker_message_stub`, and `kill_running_jobs_stub`.
-- `TODO` tasks 1-11 are marked `[x]`; remaining M1+ items are still `[ ]`.
+- `TODO` tasks 1-14 and 16 are marked `[x]`; task 15 (hotspot test on Linux + macOS) is manual and still `[ ]`.
 
 ## Verification performed
 
@@ -46,3 +52,4 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - Smoke check against `./scheduler/scheduler 9000 FIFO` printed `HELLO_ACK session 1` and `WORKER_REGISTER_ACK worker 1`.
 - Worker smoke check with `-cores 999 -ram 999999999 -gpu 2` logged clamped resource warnings and printed `WORKER_REGISTER_ACK worker 1`.
 - Build outputs stay ignored by `.gitignore`.
+- Discovery (WSL Debian, `-discovery-port 19999`): worker and client with no fallback found the scheduler; a malformed datagram was logged and ignored; killing the scheduler and restarting it at once on the same ports worked, and the worker rediscovered and re-registered; with no scheduler the fallback line printed after 3 x 2 s; with no fallback the worker exited with an error after 6 s.

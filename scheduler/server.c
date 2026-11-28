@@ -18,6 +18,7 @@
 #include "../common/net.h"
 #include "../common/protocol.h"
 #include "../common/types.h"
+#include "discovery.h"
 
 // Define the TCP listen backlog for the scheduler socket.
 #define LISTEN_BACKLOG 64
@@ -47,12 +48,6 @@ static void m1_scheduling_pass_stub(scheduler_state_t *state)
 	if (queued > 0) {
 		log_scheduling_decision(0, -1, "no worker selected by stub");
 	}
-}
-
-// Record the configured discovery port through the outcome logger.
-static void m1_discovery_responder_stub(int discovery_port)
-{
-	log_discovery_outcome(1, "stub", (uint16_t)discovery_port);
 }
 
 // Log client commands that are not implemented yet.
@@ -310,7 +305,6 @@ int scheduler_run(int port, policy_t policy, int discovery_port)
 	int listen_fd;
 
 	signal(SIGPIPE, SIG_IGN);
-	m1_discovery_responder_stub(discovery_port);
 	if (scheduler_state_init(state, policy) != 0) {
 		perror("scheduler_state_init");
 		return -1;
@@ -322,6 +316,11 @@ int scheduler_run(int port, policy_t policy, int discovery_port)
 	}
 	log_sched("startup port=%d policy=%s discovery_port=%d", port,
 	          policy == POLICY_FIFO ? "FIFO" : "PRIORITY", discovery_port);
+	if (discovery_responder_start(discovery_port, port) != 0) {
+		close(listen_fd);
+		scheduler_state_destroy(state);
+		return -1;
+	}
 	if (pthread_create(&scheduling_thread, NULL, scheduling_loop, state) != 0) {
 		close(listen_fd);
 		scheduler_state_destroy(state);

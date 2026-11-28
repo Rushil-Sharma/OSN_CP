@@ -6,9 +6,9 @@ Use this file as the shared index only. Each member reads only their own files p
 
 | Owner | Files to study |
 |---|---|
-| M | `scheduler/main.c`, `scheduler/server.h`, `scheduler/server.c`, `common/log.h`, `common/log.c`, `Makefile`, `README.md` |
+| M | `scheduler/main.c`, `scheduler/server.h`, `scheduler/server.c`, `scheduler/discovery.h`, `scheduler/discovery.c`, `common/log.h`, `common/log.c`, `Makefile`, `README.md` |
 | H | `scheduler/state.h`, `scheduler/state.c`, `common/types.h`, `common/messages.h`, `common/messages.c` |
-| R | `common/net.h`, `common/net.c`, `common/protocol.h`, `common/protocol.c`, `test/protocol_test.c`, `worker/main.c`, `client/main.c`, `CONTEXT.md`, `TODO` |
+| R | `common/net.h`, `common/net.c`, `common/protocol.h`, `common/protocol.c`, `common/discovery.h`, `common/discovery.c`, `test/protocol_test.c`, `worker/main.c`, `client/main.c`, `CONTEXT.md`, `TODO` |
 
 ## TODO ownership map
 

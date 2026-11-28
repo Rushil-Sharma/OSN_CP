@@ -9,6 +9,8 @@
 #include <sys/types.h>
 #include <unistd.h>
 
+#include "../common/discovery.h"
+#include "../common/log.h"
 #include "../common/messages.h"
 #include "../common/net.h"
 #include "../common/protocol.h"
@@ -59,13 +61,48 @@ static int connect_tcp(const char *address, int port)
 	return fd;
 }
 
+// Parse optional fallback address/port, -user, and -discovery-port in any order.
+static int parse_client_args(int argc, char **argv, const char **address, int *port,
+                             const char **user, int *discovery_port)
+{
+	int positional = 0;
+
+	for (int i = 1; i < argc; i++) {
+		if (strcmp(argv[i], "-user") == 0) {
+			if (++i >= argc) {
+				return -1;
+			}
+			*user = argv[i];
+		} else if (strcmp(argv[i], "-discovery-port") == 0) {
+			if (++i >= argc || parse_port(argv[i], discovery_port) != 0) {
+				return -1;
+			}
+		} else if (argv[i][0] == '-') {
+			return -1;
+		} else if (positional == 0) {
+			*address = argv[i];
+			positional++;
+		} else if (positional == 1) {
+			if (parse_port(argv[i], port) != 0) {
+				return -1;
+			}
+			positional++;
+		} else {
+			return -1;
+		}
+	}
+	// The fallback address is optional, but an IP without a port is an error.
+	return positional == 0 || positional == 2 ? 0 : -1;
+}
+
 // Print client command usage to stderr.
 static void usage(const char *program)
 {
-	fprintf(stderr, "Usage: %s <address> <port> -user <name>\n", program);
+	fprintf(stderr, "Usage: %s [<scheduler_ip> <scheduler_port>] -user <name> "
+	        "[-discovery-port N]\n", program);
 }
 
-// Send a hello frame and print the acknowledged session id.
+// Discover the scheduler (CLI address as fallback), send hello, print the session id.
 int main(int argc, char **argv)
 {
 	uint8_t payload[64];
@@ -75,23 +112,35 @@ int main(int argc, char **argv)
 	size_t payload_len = 0;
 	recv_status_t status;
 	msg_type_t type;
+	sched_endpoint_t endpoint;
+	const char *address = NULL;
+	const char *user = NULL;
+	int discovery_port = DISCOVERY_DEFAULT_PORT;
 	int port = 0;
 	int fd;
 
-	if (argc != 5 || strcmp(argv[3], "-user") != 0) {
+	if (parse_client_args(argc, argv, &address, &port, &user, &discovery_port) != 0) {
 		usage(argv[0]);
 		return EXIT_FAILURE;
 	}
-	if (parse_port(argv[2], &port) != 0) {
+	// The interactive username prompt is TODO 17; until then -user is mandatory.
+	if (user == NULL) {
+		fprintf(stderr, "error: -user <name> is required (username prompt not implemented yet)\n");
 		usage(argv[0]);
 		return EXIT_FAILURE;
 	}
 	signal(SIGPIPE, SIG_IGN);
-	fd = connect_tcp(argv[1], port);
+	if (discover_or_fallback(discovery_port, address, port, LOG_CLIENT, &endpoint) != 0) {
+		fprintf(stderr, "error: no scheduler found via discovery and no fallback "
+		        "<scheduler_ip> <scheduler_port> given\n");
+		return EXIT_FAILURE;
+	}
+	fd = connect_tcp(endpoint.address, endpoint.port);
 	if (fd < 0) {
 		return EXIT_FAILURE;
 	}
-	if (msg_encode_client_hello(payload, sizeof(payload), &payload_len, argv[4]) != 0 ||
+	log_line(LOG_CLIENT, -1, "Connected to Scheduler.");
+	if (msg_encode_client_hello(payload, sizeof(payload), &payload_len, user) != 0 ||
 	    send_msg(fd, MSG_CLIENT_HELLO, payload, (uint32_t)payload_len) != 0) {
 		close(fd);
 		return EXIT_FAILURE;

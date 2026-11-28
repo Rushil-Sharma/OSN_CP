@@ -8,7 +8,8 @@
 // Identify which process tag a log line should carry.
 typedef enum {
 	LOG_SCHEDULER,
-	LOG_WORKER
+	LOG_WORKER,
+	LOG_CLIENT
 } log_source_t;
 
 // Print one timestamped, tagged, thread-safe log line.
@@ -23,7 +24,7 @@ void log_job_state(uint32_t job_id, job_state_t old_state, job_state_t new_state
 // Log a scheduling decision with the reason the worker was chosen.
 void log_scheduling_decision(uint32_t job_id, int32_t worker_id, const char *why);
 
-// Log a discovery success or failure with the reported address.
+// Log a scheduler discovery responder outcome for one requester.
 void log_discovery_outcome(int success, const char *address, uint16_t port);
 
 #define log_sched(...) log_line(LOG_SCHEDULER, -1, __VA_ARGS__)

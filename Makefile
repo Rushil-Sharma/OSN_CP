@@ -19,7 +19,7 @@ WORKER_BIN := worker/worker
 CLIENT_BIN := client/client
 TEST_BIN := test/protocol_test
 
-SCHEDULER_OBJS := scheduler/main.o scheduler/state.o scheduler/server.o
+SCHEDULER_OBJS := scheduler/main.o scheduler/state.o scheduler/server.o scheduler/discovery.o
 WORKER_OBJS := worker/main.o
 CLIENT_OBJS := client/main.o
 TEST_OBJS := test/protocol_test.o
