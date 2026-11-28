@@ -117,6 +117,48 @@ static void queue_remove_locked(scheduler_state_t *state, uint32_t job_id)
 	state->queue_tail = (head + kept) % QUEUE_CAPACITY;
 }
 
+// Return a registered worker by socket fd while the caller holds the lock.
+static worker_t *find_worker_by_fd_locked(scheduler_state_t *state, int fd)
+{
+	for (uint32_t i = 0; i < state->worker_count; i++) {
+		if (state->workers[i].fd == fd) {
+			return &state->workers[i];
+		}
+	}
+	return NULL;
+}
+
+// Give a finished job's reserved resources back to its worker.
+static void release_resources_locked(scheduler_state_t *state, const job_t *job)
+{
+	worker_t *worker = NULL;
+
+	for (uint32_t i = 0; i < state->worker_count; i++) {
+		if (state->workers[i].id == job->assigned_worker) {
+			worker = &state->workers[i];
+			break;
+		}
+	}
+	if (worker == NULL) {
+		return;
+	}
+	worker->free_cores += job->cores;
+	worker->free_ram_mb += job->ram_mb;
+	worker->free_gpu += job->gpu;
+	if (worker->free_cores > worker->total_cores) {
+		worker->free_cores = worker->total_cores;
+	}
+	if (worker->free_ram_mb > worker->total_ram_mb) {
+		worker->free_ram_mb = worker->total_ram_mb;
+	}
+	if (worker->free_gpu > worker->total_gpu) {
+		worker->free_gpu = worker->total_gpu;
+	}
+	if (worker->running_jobs > 0) {
+		worker->running_jobs--;
+	}
+}
+
 // Return the process-wide scheduler state instance.
 scheduler_state_t *scheduler_global_state(void)
 {
@@ -275,6 +317,97 @@ int scheduler_set_job_state_reason_locked(scheduler_state_t *state, uint32_t job
 	return 0;
 }
 
+// Undo a failed assignment and return the job to QUEUED while the caller holds the lock.
+int scheduler_release_assignment_locked(scheduler_state_t *state, uint32_t job_id)
+{
+	job_t *job;
+
+	if (state == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	job = find_job_locked(state, job_id);
+	if (job == NULL || job->state != JOB_RUNNING) {
+		errno = EINVAL;
+		return -1;
+	}
+	release_resources_locked(state, job);
+	if (job->attempts > 0) {
+		job->attempts--;
+	}
+	job->assigned_worker = -1;
+	job->start_ts = 0;
+	job->queued_ts = (int64_t)time(NULL);
+	(void)scheduler_set_job_state_reason_locked(state, job_id, JOB_QUEUED, "assignment failed");
+	scheduler_signal_work_locked(state);
+	return 0;
+}
+
+// Apply a worker's terminal report and free its reserved resources while the caller holds the lock.
+int scheduler_finish_job_locked(scheduler_state_t *state, uint32_t job_id, int32_t worker_id,
+                                const msg_job_result_t *result)
+{
+	char reason[MAX_REASON_LEN];
+	job_state_t new_state;
+	job_t *job;
+
+	if (state == NULL || result == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	job = find_job_locked(state, job_id);
+	if (job == NULL || job->state != JOB_RUNNING || job->assigned_worker != worker_id) {
+		errno = EINVAL;
+		return -1;
+	}
+	release_resources_locked(state, job);
+	job->telemetry.exit_code = result->exit_code;
+	job->telemetry.term_signal = result->term_signal;
+	snprintf(job->telemetry.reason, sizeof(job->telemetry.reason), "%s", result->reason);
+	queue_remove_locked(state, job_id);
+	new_state = result->exit_code == 0 && result->term_signal == 0 ? JOB_COMPLETED : JOB_FAILED;
+	if (new_state == JOB_COMPLETED) {
+		(void)scheduler_set_job_state_reason_locked(state, job_id, new_state, NULL);
+	} else {
+		if (result->reason[0] != '\0') {
+			snprintf(reason, sizeof(reason), "%s", result->reason);
+		} else if (result->term_signal != 0) {
+			snprintf(reason, sizeof(reason), "terminated by signal %d", (int)result->term_signal);
+		} else {
+			snprintf(reason, sizeof(reason), "exit code %d", (int)result->exit_code);
+		}
+		(void)scheduler_set_job_state_reason_locked(state, job_id, new_state, reason);
+	}
+	scheduler_signal_work_locked(state);
+	return 0;
+}
+
+// Refresh a worker's heartbeat sample while the caller holds the lock.
+int scheduler_note_heartbeat_locked(scheduler_state_t *state, int fd, uint32_t cpu_load_pct,
+                                    uint32_t running_jobs)
+{
+	worker_t *worker;
+
+	if (state == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	worker = find_worker_by_fd_locked(state, fd);
+	if (worker == NULL) {
+		errno = ENOENT;
+		return -1;
+	}
+	worker->last_heartbeat_ts = (int64_t)time(NULL);
+	worker->missed_heartbeats = 0;
+	worker->cpu_load_pct = cpu_load_pct;
+	worker->running_jobs = running_jobs;
+	if (worker->state == WORKER_SUSPECTED) {
+		(void)scheduler_set_worker_state_locked(state, worker->id, WORKER_ALIVE);
+	}
+	scheduler_signal_work_locked(state);
+	return 0;
+}
+
 // Register a logged-in client session; returns its slot index or -1 when full.
 int scheduler_add_session(scheduler_state_t *state, int fd, const char *user, uint32_t *out_id)
 {
@@ -393,6 +526,7 @@ int scheduler_submit_job(scheduler_state_t *state, const msg_submit_t *submit, c
 	job->gpu = submit->gpu;
 	job->state = JOB_QUEUED;
 	job->submit_ts = (int64_t)time(NULL);
+	job->queued_ts = job->submit_ts;
 	job->assigned_worker = -1;
 	job->migrated_from = -1;
 	state->queue[state->queue_tail] = job->id;

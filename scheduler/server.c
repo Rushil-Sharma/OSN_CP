@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
@@ -20,6 +21,7 @@
 #include "../common/types.h"
 #include "commands.h"
 #include "discovery.h"
+#include "schedule.h"
 
 // Define the TCP listen backlog for the scheduler socket.
 #define LISTEN_BACKLOG 64
@@ -35,27 +37,6 @@ typedef struct {
 	int listen_fd;
 	scheduler_state_t *state;
 } accept_ctx_t;
-
-// Log undecided scheduling passes while the algorithm remains a stub.
-static void m1_scheduling_pass_stub(scheduler_state_t *state)
-{
-	uint32_t queued;
-
-	if (state == NULL || pthread_mutex_lock(&state->lock) != 0) {
-		return;
-	}
-	queued = state->queue_count;
-	(void)pthread_mutex_unlock(&state->lock);
-	if (queued > 0) {
-		log_scheduling_decision(0, -1, "no worker selected by stub");
-	}
-}
-
-// Log worker messages that are not implemented yet.
-static void m2_worker_message_stub(msg_type_t type)
-{
-	log_worker(-1, "message %s not implemented", msg_type_name(type));
-}
 
 // Mark the scheduler stopped and wake the scheduling thread.
 static void stop_scheduler(scheduler_state_t *state)
@@ -112,11 +93,40 @@ static void worker_session(int fd, scheduler_state_t *state, const uint8_t *payl
 		if (status != RECV_OK) {
 			break;
 		}
-		if (type == MSG_HEARTBEAT && pthread_mutex_lock(&state->lock) == 0) {
-			scheduler_signal_work_locked(state);
-			pthread_mutex_unlock(&state->lock);
-		} else if (type != MSG_HEARTBEAT) {
-			m2_worker_message_stub(type);
+		if (type == MSG_HEARTBEAT) {
+			uint32_t cpu_load_pct = 0;
+			uint32_t running_jobs = 0;
+
+			if (body_len > 0 &&
+			    msg_decode_heartbeat(body, body_len, &cpu_load_pct, &running_jobs) != 0) {
+				log_worker(worker_id, "bad heartbeat payload");
+			}
+			if (pthread_mutex_lock(&state->lock) == 0) {
+				(void)scheduler_note_heartbeat_locked(state, fd, cpu_load_pct, running_jobs);
+				pthread_mutex_unlock(&state->lock);
+			}
+		} else if (type == MSG_JOB_RESULT) {
+			msg_job_result_t result;
+			int32_t reporting_worker = -1;
+
+			if (msg_decode_job_result(body, body_len, &result) == 0 &&
+			    pthread_mutex_lock(&state->lock) == 0) {
+				for (uint32_t i = 0; i < state->worker_count; i++) {
+					if (state->workers[i].fd == fd) {
+						reporting_worker = state->workers[i].id;
+						break;
+					}
+				}
+				if (reporting_worker >= 0) {
+					(void)scheduler_finish_job_locked(state, result.job_id, reporting_worker,
+					                                  &result);
+				}
+				pthread_mutex_unlock(&state->lock);
+			} else {
+				log_worker(worker_id, "bad job result payload");
+			}
+		} else {
+			log_worker(worker_id, "message %s not implemented", msg_type_name(type));
 		}
 		msg_payload_free(body);
 	}
@@ -132,7 +142,12 @@ static void *session_thread(void *arg)
 	uint8_t *payload = NULL;
 	uint32_t length = 0;
 	recv_status_t status;
+	struct timeval send_timeout;
 
+	// Bound all session writes so one slow peer cannot stall scheduler work.
+	send_timeout.tv_sec = 2;
+	send_timeout.tv_usec = 0;
+	(void)setsockopt(ctx->fd, SOL_SOCKET, SO_SNDTIMEO, &send_timeout, sizeof(send_timeout));
 	status = recv_msg(ctx->fd, &type, &payload, &length);
 	if (status == RECV_OK) {
 		if (type == MSG_CLIENT_HELLO) {
@@ -219,7 +234,7 @@ static void *scheduling_loop(void *arg)
 		if (stop) {
 			break;
 		}
-		m1_scheduling_pass_stub(state);
+		scheduler_run_pass(state);
 	}
 	return NULL;
 }

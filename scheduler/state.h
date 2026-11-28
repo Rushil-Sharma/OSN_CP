@@ -75,6 +75,17 @@ int scheduler_set_job_state_locked(scheduler_state_t *state, uint32_t job_id, jo
 int scheduler_set_job_state_reason_locked(scheduler_state_t *state, uint32_t job_id,
                                           job_state_t new_state, const char *reason);
 
+// Undo a failed assignment and return the job to QUEUED while the caller holds the lock.
+int scheduler_release_assignment_locked(scheduler_state_t *state, uint32_t job_id);
+
+// Apply a worker's terminal report and free its reserved resources while the caller holds the lock.
+int scheduler_finish_job_locked(scheduler_state_t *state, uint32_t job_id, int32_t worker_id,
+                                const msg_job_result_t *result);
+
+// Refresh a worker's heartbeat sample while the caller holds the lock.
+int scheduler_note_heartbeat_locked(scheduler_state_t *state, int fd, uint32_t cpu_load_pct,
+                                    uint32_t running_jobs);
+
 // Register a logged-in client session; returns its slot index or -1 when full.
 int scheduler_add_session(scheduler_state_t *state, int fd, const char *user, uint32_t *out_id);
 

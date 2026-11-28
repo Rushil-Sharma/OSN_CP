@@ -77,6 +77,7 @@ typedef struct {
 	int32_t migrated_from;
 	bool preempt_hold;
 	int64_t submit_ts;
+	int64_t queued_ts;
 	int64_t start_ts;
 	int32_t assigned_worker;
 	uint8_t output[JOB_OUTPUT_CAP];

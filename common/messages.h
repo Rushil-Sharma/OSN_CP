@@ -73,6 +73,33 @@ typedef struct {
 // Define the encoded overhead of a logs chunk before its output bytes.
 #define MSG_LOGS_CHUNK_HEADER 9u
 
+// Define the largest executable image sent with one job assignment.
+#define MSG_BINARY_CAP (1024u * 1024u)
+#define MSG_JOB_ASSIGN_CAP (MSG_BINARY_CAP + 32u * 1024u)
+
+// Carry one job assignment; binary points into the received payload on decode.
+typedef struct {
+	uint32_t job_id;
+	uint32_t argc;
+	char argv[MAX_ARGV][MAX_ARG_LEN];
+	uint32_t cores;
+	uint64_t ram_mb;
+	uint32_t time_sec;
+	uint32_t prio;
+	uint32_t gpu;
+	uint8_t use_path;
+	const uint8_t *binary;
+	uint32_t binary_len;
+} msg_job_assign_t;
+
+// Carry one terminal job report from a worker.
+typedef struct {
+	uint32_t job_id;
+	int32_t exit_code;
+	int32_t term_signal;
+	char reason[MAX_REASON_LEN];
+} msg_job_result_t;
+
 // Return 1 for a valid username: 1-31 chars of letters, digits, '_', '-', '.'.
 int msg_username_valid(const char *user);
 
@@ -105,6 +132,20 @@ int msg_decode_logs_chunk(const uint8_t *buf, uint32_t len, uint32_t *job_id, ui
 // Encode or decode a cancel acknowledgement (job id + state before cancelling).
 int msg_encode_cancel_ack(uint8_t *buf, size_t cap, size_t *out_len, uint32_t job_id, uint8_t old_state);
 int msg_decode_cancel_ack(const uint8_t *buf, uint32_t len, uint32_t *job_id, uint8_t *old_state);
+
+// Encode or decode a job assignment with an optional executable image.
+int msg_encode_job_assign(uint8_t *buf, size_t cap, size_t *out_len, const msg_job_assign_t *assign);
+int msg_decode_job_assign(const uint8_t *buf, uint32_t len, msg_job_assign_t *assign);
+
+// Encode or decode a terminal job report from a worker.
+int msg_encode_job_result(uint8_t *buf, size_t cap, size_t *out_len, const msg_job_result_t *result);
+int msg_decode_job_result(const uint8_t *buf, uint32_t len, msg_job_result_t *result);
+
+// Encode or decode a heartbeat sample (load percentage + running jobs).
+int msg_encode_heartbeat(uint8_t *buf, size_t cap, size_t *out_len, uint32_t cpu_load_pct,
+                         uint32_t running_jobs);
+int msg_decode_heartbeat(const uint8_t *buf, uint32_t len, uint32_t *cpu_load_pct,
+                         uint32_t *running_jobs);
 
 // Encode or decode an [Event] text line.
 int msg_encode_event(uint8_t *buf, size_t cap, size_t *out_len, const char *text);

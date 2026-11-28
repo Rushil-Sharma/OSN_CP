@@ -320,11 +320,65 @@ static void test_command_messages(void)
 	assert(strcmp(text, "Job 1 COMPLETED successfully.") == 0);
 }
 
+// Verify job assignment, result, and heartbeat payloads round-trip.
+static void test_job_transfer_messages(void)
+{
+	static msg_job_assign_t assign;
+	static msg_job_assign_t decoded_assign;
+	static msg_job_result_t result;
+	static msg_job_result_t decoded_result;
+	uint8_t buffer[512];
+	uint8_t binary[4] = {0x7f, 'E', 'L', 'F'};
+	uint32_t cpu_load_pct = 0;
+	uint32_t running_jobs = 0;
+	size_t length = 0;
+
+	memset(&assign, 0, sizeof(assign));
+	assign.job_id = 12;
+	assign.argc = 2;
+	strcpy(assign.argv[0], "./script");
+	strcpy(assign.argv[1], "arg");
+	assign.cores = 2;
+	assign.ram_mb = 512;
+	assign.time_sec = 30;
+	assign.prio = 2;
+	assign.gpu = 1;
+	assign.use_path = 0;
+	assign.binary = binary;
+	assign.binary_len = sizeof(binary);
+	assert(msg_encode_job_assign(buffer, sizeof(buffer), &length, &assign) == 0);
+	assert(msg_decode_job_assign(buffer, (uint32_t)length, &decoded_assign) == 0);
+	assert(decoded_assign.job_id == 12 && decoded_assign.argc == 2);
+	assert(strcmp(decoded_assign.argv[0], "./script") == 0);
+	assert(decoded_assign.cores == 2 && decoded_assign.ram_mb == 512);
+	assert(decoded_assign.time_sec == 30 && decoded_assign.prio == 2 && decoded_assign.gpu == 1);
+	assert(decoded_assign.use_path == 0 && decoded_assign.binary_len == sizeof(binary));
+	assert(memcmp(decoded_assign.binary, binary, sizeof(binary)) == 0);
+	assert(msg_decode_job_assign(buffer, (uint32_t)length + 1u, &decoded_assign) != 0);
+
+	memset(&result, 0, sizeof(result));
+	result.job_id = 12;
+	result.exit_code = -1;
+	result.term_signal = 0;
+	strcpy(result.reason, "execution not implemented");
+	assert(msg_encode_job_result(buffer, sizeof(buffer), &length, &result) == 0);
+	assert(msg_decode_job_result(buffer, (uint32_t)length, &decoded_result) == 0);
+	assert(decoded_result.job_id == 12 && decoded_result.exit_code == -1);
+	assert(decoded_result.term_signal == 0);
+	assert(strcmp(decoded_result.reason, "execution not implemented") == 0);
+
+	assert(msg_encode_heartbeat(buffer, sizeof(buffer), &length, 35, 2) == 0);
+	assert(msg_decode_heartbeat(buffer, (uint32_t)length, &cpu_load_pct, &running_jobs) == 0);
+	assert(cpu_load_pct == 35 && running_jobs == 2);
+	assert(msg_decode_heartbeat(buffer, (uint32_t)length + 1u, &cpu_load_pct, &running_jobs) != 0);
+}
+
 // Run every assert-based framing and payload test.
 int main(void)
 {
 	test_username_valid();
 	test_command_messages();
+	test_job_transfer_messages();
 	test_header();
 	test_round_trip();
 	test_empty_payload();

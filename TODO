@@ -41,7 +41,7 @@ M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
 13. [x] (R) Shared discovery client: broadcast, 2s timeout, 3 retries; fallback to CLI address
     (log "No discovery reply, using fallback ..."); error+exit if no fallback
 14. [x] (R) Re-run discovery whenever the scheduler connection drops
-15. [ ] (M) Test on personal hotspot, Linux + macOS (NOT wifi-iiith; unique -discovery-port)
+15. [x] (M) Test on personal hotspot, Linux + macOS (NOT wifi-iiith; unique -discovery-port)
  
 -- 3 Client: Login (10) --
 16. [x] (R) Client CLI with discovery + fallback
@@ -56,18 +56,18 @@ M1 CORE PIPELINE  - Sections 2, 3, 4A-B, 5A-B, 7
     [Event] only to owner on every state change + worker SUSPECTED/DEAD warnings
  
 -- 4A Concurrency (30) --
-23. [ ] (M) Implement chosen model; status/nodes never wait behind a scheduling decision
-24. [ ] (M) Bounded thread-safe queue, capacity 1024; QUEUE_FULL without blocking;
+23. [x] (M) Implement chosen model; status/nodes never wait behind a scheduling decision
+24. [x] (M) Bounded thread-safe queue, capacity 1024; QUEUE_FULL without blocking;
     requeued jobs (after worker death etc.) never dropped
-25. [ ] (M) Schedule on: submit, job finish, worker available, heartbeat, AND >= once per second
- 
+25. [x] (M) Schedule on: submit, job finish, worker available, heartbeat, AND >= once per second
+
 -- 4B Algorithms (25) --
-26. [ ] (M) Pass: order -> match (ALIVE + enough free cores/RAM/GPU) -> choose -> no match
+26. [x] (M) Pass: order -> match (ALIVE + enough free cores/RAM/GPU) -> choose -> no match
     (FIFO: stop pass; PRIORITY: next job)
-27. [ ] (M) PRIORITY aging: +1 per 10s waiting, floor 1; ties -> older first
- 
+27. [x] (M) PRIORITY aging: +1 per 10s waiting, floor 1; ties -> older first
+
 -- Binary transfer --
-28. [ ] (M) Scheduler reads executable at submitted path, sends to worker;
+28. [x] (M) Scheduler reads executable at submitted path, sends to worker;
     bare PATH command (e.g. ls) runs by name, no transfer
  
 -- 5A Isolation (30) --

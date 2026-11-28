@@ -45,14 +45,19 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - Cancel currently handles QUEUED (removed from the ring queue) and WAITING jobs; RUNNING/LOST return "not implemented yet" until TODO 45. `logs -f` returns "not implemented yet" until TODO 54-55. Scheduler log lines for client actions name the user (`Job N SUBMITTED by alice`, `Job N QUEUED -> CANCELLED (requested by bob)`).
 - The job table is `jobs[QUEUE_CAPACITY]` and never frees slots, so after 1024 submissions in total, submit returns `MSG_ERR_TABLE_FULL`.
 - `common/log.{h,c}` gained `LOG_CLIENT` (`[Client]` tag); `log_discovery_outcome()` now logs responder outcomes per requester.
+- Added `scheduler/schedule.{h,c}` (TODO 23-27): one scheduling pass collects QUEUED ids under the state lock, orders FIFO by queue order or PRIORITY by effective priority (+1 per 10 s, floor 1, older-first ties), matches only ALIVE workers with enough free cores/RAM/GPU, chooses the worker with the most free cores, and stops on the first miss in FIFO while continuing in PRIORITY.
+- File reads, executable transfer, and assignment sends happen outside the state lock; all session sockets now have `SO_SNDTIMEO` 2 s so status/nodes are not stuck behind a slow peer. Assignment failures roll resources back and return the job to QUEUED without dropping its queue slot.
+- Added assignment, terminal result, and heartbeat payload helpers to `common/messages.{h,c}`; assignment carries argv plus an optional executable image capped at `MSG_BINARY_CAP` 1 MiB, and decoders reject trailing bytes.
+- Scheduler now handles `MSG_JOB_RESULT` and `MSG_HEARTBEAT`: job finish releases reserved resources, logs the transition, removes the job from the ring queue, and wakes the scheduler; heartbeat refreshes worker telemetry and wakes the scheduler.
+- Worker now receives `MSG_JOB_ASSIGN`: a submitted path is read by the scheduler and sent as binary bytes, which the worker stages in `/tmp/osn-job-XXXXXX`; a bare command is sent as `use_path=1` with no transfer. Execution itself remains a later milestone, so the worker reports `execution not implemented` as a terminal result.
 
 ## Existing M0 pieces
 
 - `.gitignore` ignores `*.o` and all four binaries.
 - `common/net.{h,c}` provides `send_all()`, `recv_all()`, `RECV_OK`, `RECV_EOF`, and `RECV_ERR`.
 - `common/protocol.{h,c}` provides all `MSG_*` types, header encode/decode, `send_msg()`, `recv_msg()`, version/type/bounds checks, and `msg_type_name()`.
-- M1+ behavior is isolated in named stubs such as `m1_scheduling_pass_stub`, `m2_worker_message_stub`, and `kill_running_jobs_stub`.
-- `TODO` tasks 1-14 and 16-22 are marked `[x]`; task 15 (hotspot test on Linux + macOS) is manual and still `[ ]`.
+- M1+ behavior still isolated in named stubs such as `kill_running_jobs_stub` for later milestones.
+- `TODO` tasks 1-28 and 34/36/37 are marked `[x]`; task 15 (hotspot test on Linux + macOS) was confirmed on WSL + macOS with a unique discovery port.
 
 ## Verification performed
 
@@ -62,4 +67,6 @@ Shared handoff for the OSN distributed compute cluster. This file records locked
 - Build outputs stay ignored by `.gitignore`.
 - Discovery (WSL Debian, `-discovery-port 19999`): worker and client with no fallback found the scheduler; a malformed datagram was logged and ignored; killing the scheduler and restarting it at once on the same ports worked, and the worker rediscovered and re-registered; with no scheduler the fallback line printed after 3 x 2 s; with no fallback the worker exited with an error after 6 s.
 - Client/commands (WSL Debian): the prompt re-asked for an empty name, a name with a space, a 32-char name and `semi;colon`, then accepted `alice`; `nodes`, `submit` (missing flag, `-prio 4`, `-cores 0`, `-depends-on`, trailing arg all rejected; valid submits got ids 1 and 2), `status` (existing, missing, non-numeric id), `logs`, `logs -f`, `cancel` (QUEUED, already CANCELLED, missing) all replied correctly. A second idle `alice` session got both cancel events at its prompt and an idle `bob` got none, including when bob cancelled alice's job. A client idle while the scheduler restarted reconnected and logged in again by itself. 1025 submits: 1024 accepted, the 1025th got QUEUE_FULL, in under 1 s.
-- Not exercised end to end yet: RUNNING/COMPLETED/FAILED events and worker SUSPECTED/DEAD warnings, because no job runs until the scheduling pass (TODO 26) exists.
+- Scheduling smoke (WSL Debian): FIFO with one 4-core worker assigned two submitted jobs in order, emitted `RUNNING` then `FAILED. Reason: execution not implemented.` events, and released all resources so `nodes` returned to 4/4 free cores. The path-based job logged `binary=21 bytes` and staged `/tmp/osn-job-*` on the worker; the bare `ls` job logged `PATH command, binary=0 bytes`.
+- PRIORITY smoke (WSL Debian, one 1-core worker): jobs submitted with priorities 3, 1, 2 ran in order 2 -> 3 -> 1.
+- Not exercised end to end yet: worker SUSPECTED/DEAD warnings and actual job execution, since execution is still behind later isolation milestones.

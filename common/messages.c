@@ -108,6 +108,18 @@ static int dec_bytes(dec_cursor_t *cursor, void *dst, size_t len)
 	return 0;
 }
 
+// Point into a decode buffer without copying raw bytes.
+static int dec_bytes_ptr(dec_cursor_t *cursor, const uint8_t **dst, size_t len)
+{
+	if (cursor->data == NULL || dst == NULL || len > cursor->len - cursor->pos) {
+		errno = EINVAL;
+		return -1;
+	}
+	*dst = cursor->data + cursor->pos;
+	cursor->pos += len;
+	return 0;
+}
+
 // Read one uint8_t from a decode buffer.
 static int dec_u8(dec_cursor_t *cursor, uint8_t *value)
 {
@@ -705,6 +717,153 @@ int msg_decode_event(const uint8_t *buf, uint32_t len, char *text, size_t cap)
 	}
 	dec_init(&cursor, buf, len);
 	if (dec_str(&cursor, text, cap) != 0) {
+		return -1;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode a job assignment with an optional executable image.
+int msg_encode_job_assign(uint8_t *buf, size_t cap, size_t *out_len, const msg_job_assign_t *assign)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL || assign == NULL || assign->argc > MAX_ARGV ||
+	    assign->binary_len > MSG_BINARY_CAP || (assign->binary_len > 0 && assign->binary == NULL)) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, assign->job_id) != 0 || enc_u32(&cursor, assign->argc) != 0) {
+		return -1;
+	}
+	for (uint32_t i = 0; i < assign->argc; i++) {
+		if (enc_str(&cursor, assign->argv[i]) != 0) {
+			return -1;
+		}
+	}
+	if (enc_u32(&cursor, assign->cores) != 0 || enc_u64(&cursor, assign->ram_mb) != 0 ||
+	    enc_u32(&cursor, assign->time_sec) != 0 || enc_u32(&cursor, assign->prio) != 0 ||
+	    enc_u32(&cursor, assign->gpu) != 0 || enc_u8(&cursor, assign->use_path) != 0 ||
+	    enc_u32(&cursor, assign->binary_len) != 0) {
+		return -1;
+	}
+	if (assign->binary_len > 0 && enc_bytes(&cursor, assign->binary, assign->binary_len) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a job assignment; binary points into buf for the life of the payload.
+int msg_decode_job_assign(const uint8_t *buf, uint32_t len, msg_job_assign_t *assign)
+{
+	dec_cursor_t cursor;
+
+	if (assign == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	memset(assign, 0, sizeof(*assign));
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, &assign->job_id) != 0 || dec_u32(&cursor, &assign->argc) != 0 ||
+	    assign->argc > MAX_ARGV) {
+		errno = EINVAL;
+		return -1;
+	}
+	for (uint32_t i = 0; i < assign->argc; i++) {
+		if (dec_str(&cursor, assign->argv[i], MAX_ARG_LEN) != 0) {
+			return -1;
+		}
+	}
+	if (dec_u32(&cursor, &assign->cores) != 0 || dec_u64(&cursor, &assign->ram_mb) != 0 ||
+	    dec_u32(&cursor, &assign->time_sec) != 0 || dec_u32(&cursor, &assign->prio) != 0 ||
+	    dec_u32(&cursor, &assign->gpu) != 0 || dec_u8(&cursor, &assign->use_path) != 0 ||
+	    dec_u32(&cursor, &assign->binary_len) != 0 || assign->binary_len > MSG_BINARY_CAP ||
+	    dec_bytes_ptr(&cursor, &assign->binary, assign->binary_len) != 0) {
+		errno = EINVAL;
+		return -1;
+	}
+	if (assign->binary_len == 0) {
+		assign->binary = NULL;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode a terminal job report from a worker.
+int msg_encode_job_result(uint8_t *buf, size_t cap, size_t *out_len, const msg_job_result_t *result)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL || result == NULL || strlen(result->reason) >= MAX_REASON_LEN) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, result->job_id) != 0 ||
+	    enc_u32(&cursor, (uint32_t)result->exit_code) != 0 ||
+	    enc_u32(&cursor, (uint32_t)result->term_signal) != 0 ||
+	    enc_str(&cursor, result->reason) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a terminal job report from a worker.
+int msg_decode_job_result(const uint8_t *buf, uint32_t len, msg_job_result_t *result)
+{
+	dec_cursor_t cursor;
+	uint32_t raw;
+
+	if (result == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, &result->job_id) != 0 || dec_u32(&cursor, &raw) != 0) {
+		return -1;
+	}
+	result->exit_code = (int32_t)raw;
+	if (dec_u32(&cursor, &raw) != 0) {
+		return -1;
+	}
+	result->term_signal = (int32_t)raw;
+	if (dec_str(&cursor, result->reason, MAX_REASON_LEN) != 0) {
+		return -1;
+	}
+	return dec_done(&cursor);
+}
+
+// Encode a heartbeat sample.
+int msg_encode_heartbeat(uint8_t *buf, size_t cap, size_t *out_len, uint32_t cpu_load_pct,
+                         uint32_t running_jobs)
+{
+	enc_cursor_t cursor;
+
+	if (out_len == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	enc_init(&cursor, buf, cap);
+	if (enc_u32(&cursor, cpu_load_pct) != 0 || enc_u32(&cursor, running_jobs) != 0) {
+		return -1;
+	}
+	*out_len = cursor.pos;
+	return 0;
+}
+
+// Decode a heartbeat sample.
+int msg_decode_heartbeat(const uint8_t *buf, uint32_t len, uint32_t *cpu_load_pct,
+                         uint32_t *running_jobs)
+{
+	dec_cursor_t cursor;
+
+	if (cpu_load_pct == NULL || running_jobs == NULL) {
+		errno = EINVAL;
+		return -1;
+	}
+	dec_init(&cursor, buf, len);
+	if (dec_u32(&cursor, cpu_load_pct) != 0 || dec_u32(&cursor, running_jobs) != 0) {
 		return -1;
 	}
 	return dec_done(&cursor);

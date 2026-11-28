@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -246,7 +247,64 @@ static int register_once(int fd, const worker_t *worker, int32_t *out_id)
 	return 0;
 }
 
-// Stay connected until the scheduler drops; job messages arrive in later milestones.
+// Write all staged executable bytes to a temporary file descriptor.
+static int write_all_fd(int fd, const uint8_t *data, uint32_t length)
+{
+	uint32_t written = 0;
+
+	while (written < length) {
+		ssize_t count = write(fd, data + written, length - written);
+
+		if (count < 0 && errno == EINTR) {
+			continue;
+		}
+		if (count <= 0) {
+			return -1;
+		}
+		written += (uint32_t)count;
+	}
+	return 0;
+}
+
+// Stage a transferred executable in /tmp so the assignment is fully received.
+static void stage_binary(int32_t worker_id, const msg_job_assign_t *assignment)
+{
+	char path[] = "/tmp/osn-job-XXXXXX";
+	int fd = mkstemp(path);
+
+	if (fd < 0) {
+		log_worker(worker_id, "job %u binary staging failed", assignment->job_id);
+		return;
+	}
+	if (write_all_fd(fd, assignment->binary, assignment->binary_len) != 0 || fchmod(fd, 0700) != 0) {
+		close(fd);
+		unlink(path);
+		log_worker(worker_id, "job %u binary staging failed", assignment->job_id);
+		return;
+	}
+	close(fd);
+	log_worker(worker_id, "job %u binary staged at %s (%u bytes)", assignment->job_id, path,
+	           assignment->binary_len);
+}
+
+// Report a terminal result for an assignment that is not executed yet.
+static void send_job_result(int fd, const msg_job_assign_t *assignment, int exit_code,
+                            const char *reason)
+{
+	uint8_t payload[MAX_REASON_LEN + 16u];
+	msg_job_result_t result;
+	size_t length = 0;
+
+	memset(&result, 0, sizeof(result));
+	result.job_id = assignment->job_id;
+	result.exit_code = exit_code;
+	snprintf(result.reason, sizeof(result.reason), "%s", reason);
+	if (msg_encode_job_result(payload, sizeof(payload), &length, &result) == 0) {
+		(void)send_msg(fd, MSG_JOB_RESULT, payload, (uint32_t)length);
+	}
+}
+
+// Receive assignments until the scheduler drops; execution arrives in later milestones.
 static void serve_until_disconnect(int fd, int32_t worker_id)
 {
 	log_worker(worker_id, "Waiting for jobs...");
@@ -258,7 +316,24 @@ static void serve_until_disconnect(int fd, int32_t worker_id)
 		if (recv_msg(fd, &type, &body, &body_len) != RECV_OK) {
 			break;
 		}
-		log_worker(worker_id, "message %s not implemented", msg_type_name(type));
+		if (type == MSG_JOB_ASSIGN) {
+			msg_job_assign_t assignment;
+
+			if (msg_decode_job_assign(body, body_len, &assignment) != 0) {
+				log_worker(worker_id, "bad job assignment payload");
+				msg_payload_free(body);
+				continue;
+			}
+			log_worker(worker_id, "job %u assigned (%s, binary=%u bytes)", assignment.job_id,
+			           assignment.use_path ? "PATH command" : "transferred executable",
+			           assignment.binary_len);
+			if (assignment.use_path == 0u) {
+				stage_binary(worker_id, &assignment);
+			}
+			send_job_result(fd, &assignment, -1, "execution not implemented");
+		} else {
+			log_worker(worker_id, "message %s not implemented", msg_type_name(type));
+		}
 		msg_payload_free(body);
 	}
 	log_worker(worker_id, "Lost connection to scheduler.");
